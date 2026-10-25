@@ -8,10 +8,6 @@ return new class extends Migration
 {
     public function up(): void
     {
-        if (config('habbo.migrations.rename_tables') && Schema::hasTable('website_installation')) {
-            Schema::rename('website_installation', sprintf('website_installation_%s', time()));
-        }
-
         Schema::create('website_installation', function (Blueprint $table) {
             $table->id();
 
@@ -22,5 +18,10 @@ return new class extends Migration
 
             $table->timestamps();
         });
+    }
+
+    public function down(): void
+    {
+        Schema::dropIfExists('website_installation');
     }
 };

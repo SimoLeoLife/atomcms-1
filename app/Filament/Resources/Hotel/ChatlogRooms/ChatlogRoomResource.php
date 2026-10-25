@@ -2,20 +2,30 @@
 
 namespace App\Filament\Resources\Hotel\ChatlogRooms;
 
+use App\Filament\Concerns\RequiresEmulatorDriver;
+use App\Filament\Concerns\TranslatableResource;
 use App\Filament\Resources\Hotel\ChatlogRooms\Pages\ManageChatlogRooms;
-use App\Filament\Traits\TranslatableResource;
 use App\Models\ChatlogRoom;
 use Filament\Actions\ViewAction;
 use Filament\Forms\Components\Textarea;
 use Filament\Forms\Components\TextInput;
 use Filament\Resources\Resource;
 use Filament\Schemas\Schema;
+use Filament\Tables\Columns\Column;
 use Filament\Tables\Columns\TextColumn;
 use Filament\Tables\Table;
+use Illuminate\Database\Eloquent\Builder;
 
 class ChatlogRoomResource extends Resource
 {
+    // Bound to Arcturus; Ada has its own EF room-message resource.
+    use RequiresEmulatorDriver;
     use TranslatableResource;
+
+    protected static function requiredEmulatorDriver(): string
+    {
+        return 'arcturus';
+    }
 
     protected static ?string $model = ChatlogRoom::class;
 
@@ -68,6 +78,7 @@ class ChatlogRoomResource extends Resource
             ->toolbarActions([]);
     }
 
+    /** @return array<int, Column> */
     public static function getTable(): array
     {
         return [
@@ -89,13 +100,18 @@ class ChatlogRoomResource extends Resource
             TextColumn::make('message')
                 ->label(__('filament::resources.columns.message'))
                 ->limit(40)
-                ->searchable(isIndividual: true),
+                ->searchable(isIndividual: true, isGlobal: false),
 
             TextColumn::make('timestamp')
                 ->label(__('filament::resources.columns.executed_at'))
                 ->dateTime('Y-m-d H:i')
                 ->toggleable(),
         ];
+    }
+
+    public static function getEloquentQuery(): Builder
+    {
+        return parent::getEloquentQuery()->with(['room', 'sender', 'receiver']);
     }
 
     public static function getPages(): array

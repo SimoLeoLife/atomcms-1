@@ -3,22 +3,37 @@
 namespace App\Filament\Resources\Atom\Articles\Pages;
 
 use App\Filament\Resources\Atom\Articles\ArticleResource;
-use App\Models\Article;
+use App\Support\AuthenticatedUser;
 use Filament\Resources\Pages\CreateRecord;
+use Illuminate\Database\Eloquent\Model;
+use Illuminate\Support\Arr;
+use Illuminate\Support\Facades\DB;
 
 class CreateArticle extends CreateRecord
 {
     protected static string $resource = ArticleResource::class;
 
-    protected function afterCreate(): void
+    protected function mutateFormDataBeforeCreate(array $data): array
     {
-        /** @var null|Article $articleCreated */
-        $articleCreated = $this->getRecord();
+        // Never trust a client-supplied author; the article always belongs
+        // to the staff member who is creating it.
+        $data['user_id'] = AuthenticatedUser::current()->id;
 
-        if (! $articleCreated || ! $articleCreated->visible) {
-            return;
-        }
+        return $data;
+    }
 
-        $articleCreated->createFollowersNotification();
+    protected function handleRecordCreation(array $data): Model
+    {
+        $isVisible = (bool) Arr::pull($data, 'is_visible', true);
+
+        return DB::transaction(function () use ($data, $isVisible): Model {
+            $record = parent::handleRecordCreation($data);
+
+            if (! $isVisible) {
+                $record->delete();
+            }
+
+            return $record;
+        });
     }
 }

@@ -3,50 +3,48 @@
 namespace App\Policies;
 
 use App\Models\User;
-use Illuminate\Auth\Access\HandlesAuthorization;
-use Illuminate\Auth\Access\Response;
 
-class UserPolicy
+class UserPolicy extends HousekeepingPolicy
 {
-    use HandlesAuthorization;
-
-    /**
-     * Determine whether the user can view any models.
-     *
-     * @return Response|bool
-     */
-    public function viewAny(User $user)
+    protected function permission(): string
     {
-        return hasHousekeepingPermission('edit_user');
+        return 'edit_user';
     }
 
-    /**
-     * Determine whether the user can view the model.
-     *
-     * @return Response|bool
-     */
-    public function view(User $user)
+    protected function deletePermission(): string
     {
-        return hasHousekeepingPermission('edit_user');
+        return 'delete_user';
     }
 
-    /**
-     * Determine whether the user can update the model.
-     *
-     * @return Response|bool
-     */
-    public function update(User $user)
+    public function view(User $user, mixed $record = null): bool
     {
-        return hasHousekeepingPermission('edit_user');
+        return parent::view($user, $record) && $this->canManage($user, $record);
     }
 
-    /**
-     * Determine whether the user can delete the model.
-     *
-     * @return Response|bool
-     */
-    public function delete(User $user)
+    public function update(User $user, mixed $record = null): bool
     {
-        return hasHousekeepingPermission('delete_user');
+        return parent::update($user, $record) && $this->canManage($user, $record);
+    }
+
+    public function delete(User $user, mixed $record = null): bool
+    {
+        return parent::delete($user, $record) && $this->canManage($user, $record);
+    }
+
+    public function restore(User $user, mixed $record = null): bool
+    {
+        return parent::restore($user, $record) && $this->canManage($user, $record);
+    }
+
+    public function forceDelete(User $user, mixed $record = null): bool
+    {
+        return parent::forceDelete($user, $record) && $this->canManage($user, $record);
+    }
+
+    private function canManage(User $actor, mixed $record): bool
+    {
+        return $record instanceof User
+            && ! $actor->is($record)
+            && $actor->rank > $record->rank;
     }
 }

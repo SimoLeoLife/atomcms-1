@@ -2,15 +2,15 @@
 
 <div class="relative h-24 w-full overflow-hidden rounded border bg-white dark:border-gray-900 dark:bg-gray-700 md:mt-0">
     <div class="absolute top-1 right-1 rounded bg-white px-2 text-sm font-semibold dark:bg-gray-900 dark:text-gray-300">
-        {{ $user->permission->rank_name }}
+        {{ $user->permission?->rank_name }}
     </div>
 
     <div class="h-[65%] w-full staff-bg"
-        style="background: rgba(0, 0, 0, 0.5) url({{ asset(sprintf('assets/images/%s', $user->permission->staff_background)) }});">
+        style="background: rgba(0, 0, 0, 0.5) url({{ asset(sprintf('assets/images/%s', $user->permission?->staff_background ?? 'staff-bg.png')) }});">
     </div>
 
     <div class="absolute top-4 left-1 drop-shadow">
-        <a href="{{ route('profile.show', $user->username) }}">
+        <a href="{{ route('home.show', $user->username) }}">
             <img style="image-rendering: pixelated;" class="transition duration-300 ease-in-out hover:scale-105"
                 src="{{ setting('avatar_imager') }}{{ $user->look }}&direction=2&head_direction=3&gesture=sml&action=wav"
                 alt="">

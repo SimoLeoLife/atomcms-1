@@ -24,13 +24,11 @@ class DatabaseSeeder extends Seeder
             WebsiteTeamSeeder::class,
 
             // Shop
-            WebsiteShopCategoriesSeeder::class,
-            WebsiteShopArticleSeeder::class,
+            WebsiteShopSeeder::class,
 
             // Help center
             WebsiteRuleCategorySeeder::class,
             WebsiteRuleSeeder::class,
-            WebsiteHelperCenterCategorySeeder::class,
             WebsiteHelperCenterCategorySeeder::class,
 
             // Values
@@ -38,6 +36,11 @@ class DatabaseSeeder extends Seeder
 
             // Housekeeping permissions
             HousekeepingPermissionSeeder::class,
+
+            // Home items
+            HomeCategorySeeder::class,
+            HomeItemSeeder::class,
+            UserHomeSeeder::class,
         ]);
 
         // \App\Models\User::factory(10)->create();

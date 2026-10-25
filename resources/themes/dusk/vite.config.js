@@ -1,16 +1,17 @@
 import { defineConfig } from "vite";
 import laravel from "laravel-vite-plugin";
 import path from "path";
-import tailwindcss from "tailwindcss";
+import tailwindcss from "@tailwindcss/postcss";
+import autoprefixer from "autoprefixer";
 
 export default defineConfig({
     plugins: [
         laravel({
             input: [
-                path.resolve(__dirname, "css/app.scss"),
+                path.resolve(__dirname, "css/app.css"),
                 path.resolve(__dirname, "js/app.js"),
                 "resources/js/global.js",
-                "resources/css/global.scss",
+                "resources/css/global.css",
             ],
         }),
 
@@ -29,15 +30,12 @@ export default defineConfig({
     resolve: {
         alias: {
             "@": path.resolve(__dirname, "js/app.js"),
+            livewire: path.resolve(__dirname, "../../../vendor/livewire/livewire/dist/livewire.esm.js"),
         },
     },
     css: {
         postcss: {
-            plugins: [
-                tailwindcss({
-                    config: path.resolve(__dirname, "tailwind.config.js"),
-                }),
-            ],
+            plugins: [tailwindcss(), autoprefixer()],
         },
     },
 });

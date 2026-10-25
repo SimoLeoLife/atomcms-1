@@ -3,28 +3,26 @@
 namespace App\Services;
 
 use App\Models\Miscellaneous\WebsitePermission;
-use Illuminate\Support\Collection;
-use Illuminate\Support\Facades\Cache;
+use App\Models\User;
 
-class PermissionsService
+class PermissionsService extends RankPermissionsService
 {
-    public ?Collection $permissions;
-
-    public function __construct()
+    protected function model(): string
     {
-        Cache::remember('website_permissions', now()->addMinutes(30), function () {
-            return WebsitePermission::all()->pluck('min_rank', 'permission');
-        });
+        return WebsitePermission::class;
+    }
 
-        $this->permissions = Cache::get('website_permissions');
+    protected function cacheKey(): string
+    {
+        return 'website_permissions';
     }
 
     public function getOrDefault(string $permissionName, bool $default = false): bool
     {
-        if (! array_key_exists($permissionName, $this->permissions->toArray())) {
-            return $default;
-        }
+        $user = auth()->user();
 
-        return auth()->check() && auth()->user()->rank >= (int) $this->permissions->get($permissionName);
+        return $user instanceof User
+            ? $this->allows($user, $permissionName, $default)
+            : $default;
     }
 }

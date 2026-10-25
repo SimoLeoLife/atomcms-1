@@ -2,17 +2,27 @@
 
 namespace App\Filament\Resources\Hotel\CommandLogs;
 
+use App\Emulator\Data\Feature;
+use App\Filament\Concerns\RequiresEmulatorFeature;
+use App\Filament\Concerns\TranslatableResource;
 use App\Filament\Resources\Hotel\CommandLogs\Pages\ManageCommandLogs;
-use App\Filament\Traits\TranslatableResource;
 use App\Models\CommandLog;
 use Filament\Resources\Resource;
 use Filament\Schemas\Schema;
 use Filament\Tables\Columns\TextColumn;
 use Filament\Tables\Filters\SelectFilter;
 use Filament\Tables\Table;
+use Illuminate\Database\Eloquent\Builder;
 
 class CommandLogResource extends Resource
 {
+    use RequiresEmulatorFeature;
+
+    protected static function requiredEmulatorFeature(): Feature
+    {
+        return Feature::CommandLogs;
+    }
+
     use TranslatableResource;
 
     protected static ?string $model = CommandLog::class;
@@ -47,15 +57,15 @@ class CommandLogResource extends Resource
                     ->badge()
                     ->color(fn (string $state): string => match ($state) {
                         'yes' => 'primary',
-                        'no' => 'warning'
+                        'no' => 'warning',
+                        default => 'gray',
                     })
                     ->label(__('filament::resources.columns.success'))
                     ->formatStateUsing(fn (string $state): string => __("filament::resources.options.{$state}")),
 
                 TextColumn::make('timestamp')
                     ->label(__('filament::resources.columns.executed_at'))
-                    ->dateTime('Y-m-d H:i')
-                    ->searchable(),
+                    ->dateTime('Y-m-d H:i'),
             ])
             ->filters([
                 SelectFilter::make('succes')
@@ -67,6 +77,11 @@ class CommandLogResource extends Resource
             ])
             ->recordActions([])
             ->toolbarActions([]);
+    }
+
+    public static function getEloquentQuery(): Builder
+    {
+        return parent::getEloquentQuery()->with('user');
     }
 
     public static function getPages(): array

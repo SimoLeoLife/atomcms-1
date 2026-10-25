@@ -1,43 +1,36 @@
 <?php
 
+use App\Models\User;
 use App\Services\HousekeepingPermissionsService;
 use App\Services\PermissionsService;
 use App\Services\SettingsService;
-use Illuminate\Support\Str;
-
-if (isset($_SERVER['HTTP_CF_CONNECTING_IP'])) {
-    $_SERVER['REMOTE_ADDR'] = $_SERVER['HTTP_CF_CONNECTING_IP'];
-}
-
-if (isset($_SERVER['HTTP_X_FORWARDED_FOR'])) {
-    $_SERVER['REMOTE_ADDR'] = $_SERVER['HTTP_X_FORWARDED_FOR'];
-}
+use Illuminate\Support\Facades\Schema;
 
 if (! function_exists('setting')) {
-    function setting(string $setting): string
+    /**
+     * @template TDefault
+     *
+     * @param  TDefault  $default
+     *
+     * @return string|TDefault
+     */
+    function setting(string $key, mixed $default = null): mixed
     {
-        return app(SettingsService::class)->getOrDefault($setting);
+        return app(SettingsService::class)->getOrDefault($key, $default);
     }
 }
 
 if (! function_exists('hasPermission')) {
-    function hasPermission(string $permission): string
+    function hasPermission(string $permission): bool
     {
         return app(PermissionsService::class)->getOrDefault($permission);
     }
 }
 
 if (! function_exists('hasHousekeepingPermission')) {
-    function hasHousekeepingPermission(string $permission): string
+    function hasHousekeepingPermission(string $permission, ?User $user = null): bool
     {
-        return app(HousekeepingPermissionsService::class)->getOrDefault($permission);
-    }
-}
-
-if (! function_exists('strLimit')) {
-    function strLimit(string $string, int $limit, string $replacement = '...'): string
-    {
-        return Str::limit($string, $limit, $replacement);
+        return app(HousekeepingPermissionsService::class)->getOrDefault($permission, user: $user);
     }
 }
 
@@ -45,9 +38,11 @@ if (! function_exists('findMigration')) {
     function findMigration(string $tableName): string
     {
         // Iterate through all migration files in the migrations directory
-        foreach (glob(database_path('migrations/*.php')) as $filename) {
+        foreach (glob(database_path('migrations/*.php')) ?: [] as $filename) {
             // Check if the migration file has the Schema::create() line with the given table name
-            if (strpos(file_get_contents($filename), "Schema::create('$tableName'")) {
+            $contents = file_get_contents($filename);
+
+            if (is_string($contents) && str_contains($contents, "Schema::create('$tableName'")) {
                 return basename($filename);
             }
         }
@@ -79,8 +74,22 @@ if (! function_exists('dropForeignKeyIfExists')) {
 
         foreach ($foreignKeys as $foreignKey) {
             if (! empty($foreignKey)) {
-                $connection->statement("ALTER TABLE {$table} DROP FOREIGN KEY {$foreignKey}");
+                $connection->statement(
+                    'ALTER TABLE `' . str_replace('`', '``', $table) . '` DROP FOREIGN KEY `' . str_replace('`', '``', $foreignKey) . '`',
+                );
             }
         }
+    }
+}
+
+if (! function_exists('cmsUserTable')) {
+    /**
+     * The table Atom's own user columns lived on when a migration ran. PlusEMU
+     * installs kept them on website_users until 2026_10_09 moved them onto the
+     * emulator's users row.
+     */
+    function cmsUserTable(): string
+    {
+        return Schema::hasTable('website_users') ? 'website_users' : (new User)->getTable();
     }
 }

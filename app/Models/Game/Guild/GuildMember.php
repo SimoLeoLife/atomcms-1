@@ -3,8 +3,27 @@
 namespace App\Models\Game\Guild;
 
 use Illuminate\Database\Eloquent\Model;
-use Illuminate\Database\Eloquent\Relations\HasMany;
+use Illuminate\Database\Eloquent\Relations\BelongsTo;
 
+/**
+ * @property int $id
+ * @property int $guild_id
+ * @property int $user_id
+ * @property int $level_id
+ * @property int $member_since
+ * @property-read Guild|null $guild
+ *
+ * @method static \Illuminate\Database\Eloquent\Builder<static>|GuildMember newModelQuery()
+ * @method static \Illuminate\Database\Eloquent\Builder<static>|GuildMember newQuery()
+ * @method static \Illuminate\Database\Eloquent\Builder<static>|GuildMember query()
+ * @method static \Illuminate\Database\Eloquent\Builder<static>|GuildMember whereGuildId($value)
+ * @method static \Illuminate\Database\Eloquent\Builder<static>|GuildMember whereId($value)
+ * @method static \Illuminate\Database\Eloquent\Builder<static>|GuildMember whereLevelId($value)
+ * @method static \Illuminate\Database\Eloquent\Builder<static>|GuildMember whereMemberSince($value)
+ * @method static \Illuminate\Database\Eloquent\Builder<static>|GuildMember whereUserId($value)
+ *
+ * @mixin \Eloquent
+ */
 class GuildMember extends Model
 {
     protected $table = 'guilds_members';
@@ -13,8 +32,9 @@ class GuildMember extends Model
 
     public $timestamps = false;
 
-    public function guilds(): HasMany
+    /** @return BelongsTo<Guild, $this> */
+    public function guild(): BelongsTo
     {
-        return $this->hasMany(Guild::class);
+        return $this->belongsTo(Guild::class, 'guild_id');
     }
 }

@@ -2,37 +2,50 @@
 
 namespace App\Rules;
 
+use App\Support\OutboundHttp;
 use Closure;
-use GuzzleHttp\Client;
-use Illuminate\Contracts\Validation\InvokableRule;
+use Illuminate\Contracts\Validation\ValidationRule;
+use Illuminate\Http\Client\ConnectionException;
 
-class GoogleRecaptchaRule implements InvokableRule
+class GoogleRecaptchaRule implements ValidationRule
 {
-    public function __invoke(string $attribute, mixed $value, Closure $fail)
+    public bool $implicit = true;
+
+    public function validate(string $attribute, mixed $value, Closure $fail): void
     {
         // If recaptcha is disabled
         if (! (int) setting('google_recaptcha_enabled')) {
-            return true;
+            return;
         }
 
-        $client = new Client;
+        if (! is_string($value) || trim($value) === '') {
+            $fail(__('The Google recaptcha must be completed'));
 
-        $response = $client->request(
-            'POST', 'https://www.google.com/recaptcha/api/siteverify', [
-                'form_params' => [
+            return;
+        }
+
+        try {
+            $response = OutboundHttp::request()
+                ->asForm()
+                ->post('https://www.google.com/recaptcha/api/siteverify', [
                     'secret' => config('habbo.site.recaptcha_secret_key'),
                     'response' => $value,
                     'remoteip' => request()->ip(),
-                ],
-            ],
-        );
+                ]);
+        } catch (ConnectionException) {
+            $fail(__('The Google recaptcha could not be verified. Please try again.'));
 
-        if ($response->getStatusCode() !== 200) {
-            $fail(__('The Google recaptcha was not successful.'));
+            return;
         }
 
-        $body = json_decode((string) $response->getBody());
+        if (! $response->successful()) {
+            $fail(__('The Google recaptcha was not successful.'));
 
-        return $body->success;
+            return;
+        }
+
+        if ($response->json('success') !== true) {
+            $fail(__('The Google recaptcha was not successful.'));
+        }
     }
 }

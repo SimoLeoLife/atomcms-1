@@ -3,27 +3,64 @@
 namespace App\Filament\Resources\User\Users\Pages;
 
 use App\Actions\SendCurrency;
+use App\Contracts\Rcon;
+use App\Emulator\Contracts\CurrencyRepository;
+use App\Emulator\Contracts\PlayerSettingsRepository;
+use App\Emulator\Data\Feature;
+use App\Emulator\Emulator;
 use App\Enums\CurrencyTypes;
 use App\Filament\Resources\User\Users\UserResource;
-use App\Models\Game\Player\UserCurrency;
-use App\Services\RconService;
+use App\Models\User;
 use Filament\Actions\DeleteAction;
 use Filament\Notifications\Notification;
 use Filament\Resources\Pages\EditRecord;
 use Filament\Support\Exceptions\Halt;
-use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Model;
+use Illuminate\Database\QueryException;
+use Illuminate\Support\Arr;
 use Illuminate\Support\Facades\DB;
+use LogicException;
 
 class EditUser extends EditRecord
 {
+    /**
+     * Columns that are guarded against mass assignment on the User model. The
+     * housekeeping editor may still change them once beforeSave() has verified
+     * the actor's authority, so they are persisted through forceFill().
+     */
+    private const PRIVILEGED_ATTRIBUTES = ['rank', 'credits', 'hidden_staff', 'auth_ticket', 'team_id'];
+
+    /** MariaDB/MySQL error for deleting a row a foreign key still restricts. */
+    private const ROW_IS_REFERENCED = 1451;
+
     protected static string $resource = UserResource::class;
 
-    protected function getActions(): array
+    protected function getHeaderActions(): array
     {
         return [
-            DeleteAction::make(),
+            DeleteAction::make()
+                ->using(fn (User $record): bool => $this->deleteUser($record))
+                ->failureNotificationTitle(__('This user still owns rooms or groups, or has payment records, and cannot be deleted. Transfer or remove those first.')),
         ];
+    }
+
+    /**
+     * Atom's row and the emulator's player are removed together or not at all.
+     * Rows that must outlive a delete (owned rooms and groups, PayPal
+     * transactions) make the database refuse it, which rolls back Atom's half
+     * as well. Everything else the player owns cascades with the users row.
+     */
+    private function deleteUser(User $user): bool
+    {
+        try {
+            return DB::transaction(fn (): bool => (bool) $user->delete());
+        } catch (QueryException $exception) {
+            if (($exception->errorInfo[1] ?? null) === self::ROW_IS_REFERENCED) {
+                return false;
+            }
+
+            throw $exception;
+        }
     }
 
     protected function mutateFormDataBeforeFill(array $data): array
@@ -34,20 +71,17 @@ class EditUser extends EditRecord
         );
     }
 
-    public static function getEloquentQuery(): Builder
-    {
-        return static::getModel()::query()->with(['currencies', 'settings']);
-    }
-
     /**
      * @throws Halt
      */
     protected function beforeSave(): void
     {
-        $user = $this->getRecord();
-        $data = $this->form->getState();
+        $user = $this->userRecord($this->getRecord());
+        $data = $this->getSchema('form')?->getState()
+            ?? throw new LogicException('The user edit form schema is not registered.');
+        $actor = auth()->user();
 
-        if ($data['rank'] > auth()->user()->rank) {
+        if (! $actor instanceof User || $actor->cannot('update', $user) || (int) $data['rank'] >= $actor->rank) {
             Notification::make()
                 ->danger()
                 ->title(__('You cannot edit this user!'))
@@ -57,17 +91,7 @@ class EditUser extends EditRecord
             $this->halt();
         }
 
-        $rcon = app(RconService::class);
-
-        if (! $user->online) {
-            DB::transaction(function () use ($user, $data) {
-                $this->treatChangedCurrenciesWithoutRcon($user, $data);
-            });
-
-            return;
-        }
-
-        if ($user->online && ! $rcon->isConnected()) {
+        if ($user->online && ! app(Rcon::class)->isConnected()) {
             Notification::make()
                 ->danger()
                 ->title(__('RCON is not enabled!'))
@@ -76,50 +100,114 @@ class EditUser extends EditRecord
 
             $this->halt();
         }
+    }
 
-        DB::transaction(function () use ($user, $data, $rcon) {
+    protected function handleRecordUpdate(Model $record, array $data): Model
+    {
+        $user = $this->userRecord($record);
+        $rcon = app(Rcon::class);
+
+        return DB::transaction(function () use ($user, $data, $rcon): Model {
+            if (! $user->online) {
+                $this->treatChangedCurrenciesWithoutRcon($user, $data);
+
+                return $this->persistUserUpdate($user, $data);
+            }
+
             if ($data['credits'] != $user->credits) {
-                $rcon->giveCredits($user, -$user->credits + $data['credits']);
+                app(SendCurrency::class)->execute($user, CurrencyTypes::Credits, -$user->credits + $data['credits']);
             }
 
             $this->checkUsernameChangedPermission($user, $data, $rcon);
-            $this->treatChangedCurrencies($user, $data, $rcon);
+            $this->treatChangedCurrencies($user, $data);
             $this->treatChangedUserRank($user, $data, $rcon);
             $this->treatChangedUserMotto($user, $data, $rcon);
+
+            // The emulator persists these fields when the deferred RCON commands run.
+            return $this->persistUserUpdate($user, Arr::except($data, ['credits', 'rank', 'motto']));
         });
     }
 
-    private function treatChangedCurrenciesWithoutRcon(Model $user, array $data): void
+    /**
+     * Persists a housekeeping edit, force-filling the attributes the User
+     * model guards against mass assignment. beforeSave() has already
+     * authorized the actor for these privileged changes.
+     *
+     * @param  array<string, mixed>  $data
+     */
+    private function persistUserUpdate(User $user, array $data): User
     {
-        $user->currencies->each(function (UserCurrency $currency) use ($data, $user) {
-            $updatedCurrencyAmount = $data["currency_{$currency->type}"] ?? $currency->amount;
-            if ($updatedCurrencyAmount == $currency->amount) {
-                return;
-            }
+        $user->fill(Arr::except($data, self::PRIVILEGED_ATTRIBUTES));
+        $user->forceFill(Arr::only($data, self::PRIVILEGED_ATTRIBUTES));
+        $user->save();
 
-            $updated = $user->currencies()->where('type', $currency->type)->update(['amount' => $updatedCurrencyAmount]);
-
-            if ($updated) {
-                activity()
-                    ->performedOn($currency)
-                    ->withProperties(['old_amount' => $currency->amount, 'new_amount' => $updatedCurrencyAmount, 'user_id' => $user->id, 'type' => $currency->type])
-                    ->event('updated')
-                    ->log("Currency updated for user {$user->username}");
-
-            } else {
-                activity()
-                    ->withProperties(['user_id' => $user->id, 'type' => $currency->type])
-                    ->event('failed_update')
-                    ->log("Failed to update currency for user {$user->username}");
-            }
-        });
-
-        $user->settings->update(['can_change_name' => $data['allow_change_username'] ? '1' : '0']);
+        return $user;
     }
 
-    private function checkUsernameChangedPermission(Model $user, array $data, RconService $rcon): void
+    /** @param array<string, mixed> $data */
+    protected function mutateFormDataBeforeSave(array $data): array
     {
-        if ($data['allow_change_username'] == $user->settings->can_change_name) {
+        if (! hasHousekeepingPermission('reset_user_password', auth()->user())) {
+            unset($data['password']);
+        }
+
+        return $data;
+    }
+
+    /** @param array<string, mixed> $data */
+    private function treatChangedCurrenciesWithoutRcon(User $user, array $data): void
+    {
+        $currencies = app(CurrencyRepository::class);
+
+        foreach ($this->changedCurrencies($user, $data) as [$type, $current, $updated]) {
+            $currencies->give($user, $type, $updated - $current);
+
+            activity()
+                ->performedOn($user)
+                ->withProperties(['old_amount' => $current, 'new_amount' => $updated, 'user_id' => $user->id, 'type' => $type->value])
+                ->event('updated')
+                ->log("Currency updated for user {$user->username}");
+        }
+
+        $this->updateNameChangePermission($user, $data);
+    }
+
+    /**
+     * Non-credit currencies whose form value differs from the stored balance.
+     *
+     * @param  array<string, mixed>  $data
+     *
+     * @return list<array{CurrencyTypes, int, int}>
+     */
+    private function changedCurrencies(User $user, array $data): array
+    {
+        $currencies = app(CurrencyRepository::class);
+        $changes = [];
+
+        foreach (CurrencyTypes::cases() as $type) {
+            if ($type === CurrencyTypes::Credits) {
+                continue;
+            }
+
+            $current = $currencies->balance($user, $type);
+            $updated = (int) ($data["currency_{$type->value}"] ?? $current);
+
+            if ($updated !== $current) {
+                $changes[] = [$type, $current, $updated];
+            }
+        }
+
+        return $changes;
+    }
+
+    /** @param array<string, mixed> $data */
+    private function checkUsernameChangedPermission(User $user, array $data, Rcon $rcon): void
+    {
+        if (! Emulator::supports(Feature::NameChangePermission)) {
+            return;
+        }
+
+        if (($data['allow_change_username'] ?? false) === app(PlayerSettingsRepository::class)->canChangeName($user)) {
             return;
         }
 
@@ -134,33 +222,40 @@ class EditUser extends EditRecord
         }
 
         $rcon->disconnectUser($user);
-        $user->settings->update(['can_change_name' => $data['allow_change_username'] ? '1' : '0']);
+        $this->updateNameChangePermission($user, $data);
     }
 
-    private function treatChangedCurrencies(Model $user, array $data, RconService $rcon): void
+    /** @param array<string, mixed> $data */
+    private function updateNameChangePermission(User $user, array $data): void
     {
-        $user->currencies->each(function (UserCurrency $currency) use ($data, $user) {
-            $updatedCurrencyAmount = $data["currency_{$currency->type}"] ?? $currency->amount;
-            $currencyType = match ($currency->type) {
-                CurrencyTypes::Duckets => 'duckets',
-                CurrencyTypes::Diamonds => 'diamonds',
-                CurrencyTypes::Points => 'points',
-            };
+        if (! Emulator::supports(Feature::NameChangePermission)) {
+            return;
+        }
 
-            if ($updatedCurrencyAmount == $currency->amount) {
-                return;
-            }
-
-            app(SendCurrency::class)->execute($user, $currencyType, -$currency->amount + $updatedCurrencyAmount);
-        });
+        app(PlayerSettingsRepository::class)->setCanChangeName(
+            $user,
+            (bool) ($data['allow_change_username'] ?? false),
+        );
     }
 
-    private function treatChangedUserRank(Model $user, array $data, RconService $rcon): void
+    /** @param array<string, mixed> $data */
+    private function treatChangedCurrencies(User $user, array $data): void
+    {
+        foreach ($this->changedCurrencies($user, $data) as [$type, $current, $updated]) {
+            app(SendCurrency::class)->execute($user, $type, $updated - $current);
+        }
+    }
+
+    /** @param array<string, mixed> $data */
+    private function treatChangedUserRank(User $user, array $data, Rcon $rcon): void
     {
         if ($data['rank'] == $user->rank) {
             return;
         }
-        if ($data['rank'] > auth()->user()->rank) {
+
+        $actor = auth()->user();
+
+        if (! $actor instanceof User || (int) $data['rank'] >= $actor->rank) {
             return;
         }
 
@@ -175,19 +270,18 @@ class EditUser extends EditRecord
         }
 
         if (! $user->online) {
-            $user->update(['rank' => $data['rank']]);
+            $user->forceFill(['rank' => $data['rank']])->save();
 
             return;
         }
 
         $rcon->alertUser($user, __('You have been disconnected because your rank has been changed. Please re-enter the hotel.'));
-        sleep(2);
-
         $rcon->disconnectUser($user);
         $rcon->setRank($user, $data['rank']);
     }
 
-    private function treatChangedUserMotto(Model $user, array $data, RconService $rcon): void
+    /** @param array<string, mixed> $data */
+    private function treatChangedUserMotto(User $user, array $data, Rcon $rcon): void
     {
         if ($data['motto'] == $user->motto) {
             return;
@@ -211,5 +305,14 @@ class EditUser extends EditRecord
 
         $rcon->setMotto($user, $data['motto']);
         $rcon->alertUser($user, __('Your motto has been changed by a staff member.'));
+    }
+
+    private function userRecord(Model $record): User
+    {
+        if (! $record instanceof User) {
+            throw new LogicException('The user editor received an unsupported model.');
+        }
+
+        return $record;
     }
 }

@@ -2,8 +2,10 @@
 
 namespace App\Filament\Resources\Hotel\WordFilters;
 
+use App\Emulator\Data\Feature;
+use App\Filament\Concerns\RequiresEmulatorFeature;
+use App\Filament\Concerns\TranslatableResource;
 use App\Filament\Resources\Hotel\WordFilters\Pages\ManageWordFilters;
-use App\Filament\Traits\TranslatableResource;
 use App\Models\Wordfilter;
 use Filament\Actions\DeleteAction;
 use Filament\Actions\DeleteBulkAction;
@@ -18,6 +20,13 @@ use Filament\Tables\Table;
 
 class WordFilterResource extends Resource
 {
+    use RequiresEmulatorFeature;
+
+    protected static function requiredEmulatorFeature(): Feature
+    {
+        return Feature::Wordfilter;
+    }
+
     use TranslatableResource;
 
     protected static ?string $model = Wordfilter::class;

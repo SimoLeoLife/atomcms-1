@@ -2,29 +2,31 @@
 
 namespace App\Http\Requests;
 
+use App\Actions\Fortify\Rules\PasswordValidationRules;
+use App\Emulator\Emulator;
+use App\Models\User;
+use App\Rules\CloudflareTurnstileRule;
 use App\Rules\GoogleRecaptchaRule;
 use Illuminate\Foundation\Http\FormRequest;
-use RyanChandler\LaravelCloudflareTurnstile\Rules\Turnstile;
+use Illuminate\Validation\Rule;
 
 class RegisterFormRequest extends FormRequest
 {
+    use PasswordValidationRules;
+
     protected $errorBag = 'register';
 
+    /** @return array<string, mixed> */
     public function rules(): array
     {
         return [
-            'username' => ['required', 'string', sprintf('regex:%s', setting('username_regex')), 'max:25', Rule::unique('users')],
-            'mail' => ['required', 'string', 'email', 'max:255', Rule::unique('users')],
-            'password' => ['required', 'string', 'confirmed', 'min:8'],
+            'username' => ['required', 'string', sprintf('regex:%s', setting('username_regex')), 'max:' . Emulator::constraints()->usernameLength, Rule::unique((new User)->getTable())],
+            'mail' => ['required', 'string', 'email', 'max:' . Emulator::constraints()->emailLength, Rule::unique((new User)->getTable())],
+            'password' => $this->passwordRules(),
             'terms' => ['required', 'accepted'],
             'g-recaptcha-response' => [new GoogleRecaptchaRule],
-            'cf-turnstile-response' => [app(Turnstile::class)],
+            'cf-turnstile-response' => [new CloudflareTurnstileRule],
         ];
-    }
-
-    public function authorize(): bool
-    {
-        return true;
     }
 
     public function messages(): array

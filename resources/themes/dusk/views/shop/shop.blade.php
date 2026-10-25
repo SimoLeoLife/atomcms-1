@@ -49,12 +49,12 @@
         <div class="order-last lg:order-1 col-span-12 md:col-span-9 grid grid-cols-12 gap-4">
             <div class="col-span-12 md:col-span-3">
                 <x-page-header>
-                    Categories
+                    {{ __('Categories') }}
                 </x-page-header>
 
                 <div class="mt-3 space-y-2">
                     <a href="{{ route('shop.index') }}"
-                       class="w-full flex items-center gap-4 rounded-lg overflow-hidden bg-[#2b303c] p-4 shadow text-gray-100 transition-all hover:scale-[101%]">
+                       class="w-full flex items-center gap-4 rounded-lg overflow-hidden bg-[#2b303c] p-4 shadow-sm text-gray-100 transition-all hover:scale-[101%]">
                         <img class="max-h-[50px] max-w-[50px]" src="{{ asset('/assets/images/icons/navigation/shop.png') }}" alt="">
 
                         {{ __('All') }}
@@ -62,7 +62,7 @@
 
                     @foreach($categories as $category)
                         <a href="{{ route('shop.index', $category->slug) }}"
-                           class="w-full flex items-center gap-4 rounded-lg overflow-hidden bg-[#2b303c] p-4 shadow text-gray-100 transition-all hover:scale-[101%]">
+                           class="w-full flex items-center gap-4 rounded-lg overflow-hidden bg-[#2b303c] p-4 shadow-sm text-gray-100 transition-all hover:scale-[101%]">
                             <img class="max-h-[50px] max-w-[50px]" src="{{ $category->icon }}" alt="">
 
                             {{ $category->name }}
@@ -72,11 +72,13 @@
             </div>
 
             <div class="col-span-12 md:col-span-9 space-y-3">
-                <div class="grid grid-cols-1 lg:grid-cols-{{$articles->count() > 1 ? '2' : '1'}} gap-4">
-                    @foreach ($articles as $article)
-                        <x-shop.packages :article="$article"/>
-                    @endforeach
-                </div>
+                @if($shopPackages->isNotEmpty())
+                    <div class="grid grid-cols-1 lg:grid-cols-{{ $shopPackages->count() > 1 ? '2' : '1' }} gap-4">
+                        @foreach ($shopPackages as $shopPackage)
+                            <x-shop.package-card :package="$shopPackage"/>
+                        @endforeach
+                    </div>
+                @endif
             </div>
         </div>
 
@@ -91,11 +93,11 @@
                 </x-slot:under-title>
 
                 <div class="text-sm text-center py-2 px-4 rounded text-black text-gray-100 bg-gray-700">
-                    {{ __('Current balance: $:balance', ['balance' => auth()->user()->website_balance]) }}
+                    {{ __('Current balance: :balance', ['balance' => \App\Support\StorefrontMoney::format(auth()->user()->website_balance)]) }}
                 </div>
 
-                @if(config('paypal.live.client_id') && config('paypal.live.client_secret'))
-                    <form action="{{ route('paypal.process-transaction') }}" method="GET" class="mt-3">
+                @if(\App\Support\PaypalConfiguration::isConfigured())
+                    <form action="{{ route('paypal.process-transaction') }}" method="POST" class="mt-3">
                         @csrf
 
                         <x-form.input name="amount" type="number" value="0" placeholder="amount"/>

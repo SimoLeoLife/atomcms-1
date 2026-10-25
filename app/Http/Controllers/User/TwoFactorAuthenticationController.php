@@ -2,10 +2,15 @@
 
 namespace App\Http\Controllers\User;
 
+use App\Data\TwoFactorSetupData;
 use App\Http\Controllers\Controller;
+use App\Support\AuthenticatedUser;
+use Illuminate\Http\JsonResponse;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
+use Illuminate\Http\Response;
 use Illuminate\View\View;
+use Laravel\Fortify\Actions\ConfirmTwoFactorAuthentication;
 use Laravel\Fortify\Actions\DisableTwoFactorAuthentication;
 use Laravel\Fortify\Actions\EnableTwoFactorAuthentication;
 
@@ -16,26 +21,49 @@ class TwoFactorAuthenticationController extends Controller
         return view('user.settings.two-factor');
     }
 
-    public function store(Request $request, EnableTwoFactorAuthentication $enable): RedirectResponse
+    public function store(Request $request, EnableTwoFactorAuthentication $enable): RedirectResponse|JsonResponse|Response
     {
+        $request->validate([
+            'current_password' => ['required', 'current_password'],
+        ]);
+
         $enable($request->user());
+
+        if ($request->expectsJson()) {
+            $request->session()->put('auth.password_confirmed_at', time());
+
+            return response()->json(['data' => TwoFactorSetupData::from(AuthenticatedUser::from($request))])->header('Cache-Control', 'no-store');
+        }
 
         return redirect()->route('settings.two-factor')->with('success', __('Two-factor authentication has been enabled. Please scan the QR code to continue.'));
     }
 
-    public function verify(Request $request): RedirectResponse
+    public function verify(Request $request, ConfirmTwoFactorAuthentication $confirm): RedirectResponse|JsonResponse|Response
     {
-        $confirmed = $request->user()->confirmTwoFactorAuthentication($request->input('code'));
-        if (! $confirmed) {
-            return back()->withErrors('Invalid Two Factor Authentication code');
+        $validated = $request->validateWithBag('confirmTwoFactorAuthentication', [
+            'code' => ['required', 'string', 'size:6'],
+        ]);
+
+        $confirm($request->user(), $validated['code']);
+
+        if ($request->expectsJson()) {
+            return response()->json(['data' => ['enabled' => true]]);
         }
 
         return redirect()->route('settings.two-factor')->with('success', __('Two-factor authentication has been confirmed.'));
     }
 
-    public function destroy(Request $request, DisableTwoFactorAuthentication $disable): RedirectResponse
+    public function destroy(Request $request, DisableTwoFactorAuthentication $disable): RedirectResponse|JsonResponse|Response
     {
+        $request->validate([
+            'current_password' => ['required', 'current_password'],
+        ]);
+
         $disable($request->user());
+
+        if ($request->expectsJson()) {
+            return response()->noContent();
+        }
 
         return redirect()->route('settings.two-factor')->with('success', __('Two-factor authentication has been disabled.'));
     }

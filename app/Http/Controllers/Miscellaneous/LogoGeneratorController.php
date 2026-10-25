@@ -2,13 +2,16 @@
 
 namespace App\Http\Controllers\Miscellaneous;
 
+use App\Actions\ReplaceGeneratedLogo;
 use App\Http\Controllers\Controller;
-use App\Models\Miscellaneous\WebsiteSetting;
-use Illuminate\Http\Request;
+use App\Http\Requests\LogoGeneratorRequest;
+use Illuminate\Http\JsonResponse;
+use Illuminate\Http\RedirectResponse;
+use Illuminate\View\View;
 
 class LogoGeneratorController extends Controller
 {
-    public function index()
+    public function index(): RedirectResponse|View
     {
         if (! hasPermission('generate_logo')) {
             return to_route('me.show')->with([
@@ -19,22 +22,10 @@ class LogoGeneratorController extends Controller
         return view('logo-generator');
     }
 
-    public function store(Request $request)
+    public function store(LogoGeneratorRequest $request, ReplaceGeneratedLogo $replaceLogo): JsonResponse
     {
-        $request->validate(['logo' => 'required|image']);
-        $file = $request->file('logo');
-        $filename = $file->getClientOriginalName();
-        $path = '/assets/images/generated-logos';
-
-        $file->move(public_path($path), $filename);
-
-        $setting = WebsiteSetting::where('key', 'cms_logo')->first();
-
-        $setting->update([
-            'value' => sprintf('%s/%s', $path, $filename),
-        ]);
+        $replaceLogo->execute($request->file('logo'));
 
         return response()->json(['success' => true, 'message' => 'Logo updated!']);
-
     }
 }

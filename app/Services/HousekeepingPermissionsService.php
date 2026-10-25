@@ -2,24 +2,30 @@
 
 namespace App\Services;
 
+use App\Models\User;
 use App\Models\WebsiteHousekeepingPermission;
-use Illuminate\Support\Collection;
 
-class HousekeepingPermissionsService
+class HousekeepingPermissionsService extends RankPermissionsService
 {
-    public ?Collection $permissions;
-
-    public function __construct()
+    protected function model(): string
     {
-        $this->permissions = WebsiteHousekeepingPermission::all()->pluck('min_rank', 'permission');
+        return WebsiteHousekeepingPermission::class;
     }
 
-    public function getOrDefault(string $permissionName, bool $default = false): bool
+    protected function cacheKey(): string
     {
-        if (! array_key_exists($permissionName, $this->permissions->toArray())) {
-            return $default;
+        return 'housekeeping_permissions';
+    }
+
+    public function getOrDefault(string $permissionName, bool $default = false, ?User $user = null): bool
+    {
+        if ($user === null) {
+            $authenticatedUser = auth()->user();
+            $user = $authenticatedUser instanceof User ? $authenticatedUser : null;
         }
 
-        return auth()->check() && auth()->user()->rank >= (int) $this->permissions->get($permissionName);
+        return $user instanceof User
+            ? $this->allows($user, $permissionName, $default)
+            : $default;
     }
 }

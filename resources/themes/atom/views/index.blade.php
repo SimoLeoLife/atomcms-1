@@ -22,7 +22,7 @@
             </x-content.guest-content-card>
         </div>
 
-        @if($photos)
+        @if($photos->isNotEmpty())
             <div class="col-span-12">
                 <x-content.guest-content-card icon="camera-icon">
                     <x-slot:title>
@@ -38,9 +38,5 @@
         @endif
     </div>
 
-    @push('javascript')
-        <script src="https://cdn.jsdelivr.net/npm/@fancyapps/ui@4.0/dist/fancybox.umd.js"></script>
-    @endpush
-
-    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@fancyapps/ui/dist/fancybox.css" />
+    <x-fancybox-assets />
 </x-app-layout>

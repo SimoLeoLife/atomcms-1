@@ -2,9 +2,11 @@
 
 namespace App\Filament\Resources\User\Users\RelationManagers;
 
+use App\Contracts\Rcon;
+use App\Emulator\Contracts\BadgeRepository;
+use App\Filament\Concerns\TranslatableResource;
 use App\Filament\Tables\Columns\HabboBadgeColumn;
-use App\Filament\Traits\TranslatableResource;
-use App\Services\RconService;
+use App\Models\User;
 use Filament\Actions\CreateAction;
 use Filament\Actions\DeleteAction;
 use Filament\Actions\DeleteBulkAction;
@@ -15,12 +17,16 @@ use Filament\Schemas\Schema;
 use Filament\Tables\Columns\IconColumn;
 use Filament\Tables\Columns\TextColumn;
 use Filament\Tables\Table;
+use Illuminate\Database\Eloquent\Model;
+use LogicException;
 
 class BadgesRelationManager extends RelationManager
 {
     use TranslatableResource;
 
-    protected static string $relationship = 'badges';
+    protected static string|\UnitEnum|null $navigationGroup = null;
+
+    protected static string $relationship = 'emulatorBadges';
 
     protected static ?string $recordTitleAttribute = 'badge_code';
 
@@ -67,26 +73,39 @@ class BadgesRelationManager extends RelationManager
             ])
             ->headerActions([
                 CreateAction::make()
+                    ->using(function (array $data, RelationManager $livewire): Model {
+                        $user = self::owner($livewire);
+                        $badges = app(BadgeRepository::class);
+
+                        $badges->grant($user, $data['badge_code']);
+
+                        return $badges->relation($user)->where('badge_code', $data['badge_code'])->firstOrFail();
+                    })
                     ->before(function (CreateAction $action, RelationManager $livewire): void {
-                        $user = $livewire->getOwnerRecord();
-                        $hasRconEnabled = config('hotel.rcon.enabled');
+                        $user = self::owner($livewire);
 
                         if (! $user->online) {
                             return;
                         }
 
-                        if (! $hasRconEnabled) {
+                        // Online users must receive badges through the emulator;
+                        // inserting the row directly would desync their session.
+                        $rcon = app(Rcon::class);
+
+                        if ($rcon->isConnected()) {
+                            $rcon->giveBadge($user, $action->getFormData()['badge_code']);
+
                             Notification::make()
-                                ->danger()
-                                ->title('RCON is not enabled!')
-                                ->body("You can't send badges to online users if RCON is not enabled.")
-                                ->persistent()
+                                ->success()
+                                ->title('Badge sent through the emulator')
                                 ->send();
                         } else {
-                            $rcon = app(RconService::class);
-                            $data = $action->getFormData();
-
-                            $rcon->sendSafelyFromDashboard('sendBadge', [$user, $data['badge_code']], 'RCON: Failed to send the badge');
+                            Notification::make()
+                                ->danger()
+                                ->title('RCON is not connected!')
+                                ->body("You can't send badges to online users while RCON is unavailable.")
+                                ->persistent()
+                                ->send();
                         }
 
                         $action->cancel();
@@ -104,29 +123,32 @@ class BadgesRelationManager extends RelationManager
 
     public static function onDeleteBadgeAction(DeleteAction|DeleteBulkAction $action, RelationManager $livewire): void
     {
-        $user = $livewire->getOwnerRecord();
-        $hasRconEnabled = config('hotel.rcon.enabled');
+        $user = self::owner($livewire);
 
         if (! $user->online) {
             return;
         }
 
-        if (! $hasRconEnabled) {
-            Notification::make()
-                ->danger()
-                ->title('RCON is not enabled!')
-                ->body("You can't remove badges to online users if RCON is not enabled.")
-                ->persistent()
-                ->send();
-        } else {
-            $rcon = app(RconService::class);
-            $badge = $action instanceof DeleteAction
-                ? $action->getRecord()?->badge_code
-                : $action->getRecords()->map(fn ($record) => $record->badge_code)->join(';');
-
-            $rcon->sendSafelyFromDashboard('removeBadge', [$user, $badge], 'RCON: Failed to remove the badge');
-        }
+        // The emulator has no remove-badge command, and deleting rows under an
+        // online user desyncs their session.
+        Notification::make()
+            ->danger()
+            ->title('User is online')
+            ->body('Badges can only be removed while the user is offline.')
+            ->persistent()
+            ->send();
 
         $action->cancel();
+    }
+
+    private static function owner(RelationManager $livewire): User
+    {
+        $record = $livewire->getOwnerRecord();
+
+        if (! $record instanceof User) {
+            throw new LogicException('The badge manager received an unsupported owner model.');
+        }
+
+        return $record;
     }
 }

@@ -2,57 +2,62 @@
 
 namespace App\Http\Middleware;
 
+use App\Http\Responses\AccessResponse;
+use App\Models\User;
+use App\Support\FrontendUrls;
 use Closure;
 use Illuminate\Http\Request;
-use Illuminate\Support\Facades\Auth;
 use Symfony\Component\HttpFoundation\Response;
 
 class MaintenanceMiddleware
 {
     public function handle(Request $request, Closure $next): Response
     {
-        $isPostRequest = $request->method() === 'POST';
+        if ($request->is('logout', 'housekeeping/logout') || $request->routeIs('logout', 'filament.*.auth.logout')) {
+            return $next($request);
+        }
+
+        $maintenanceEnabled = (bool) setting('maintenance_enabled');
         $isMaintenanceRequest = $request->is('maintenance');
-        $maintenanceEnabled = setting('maintenance_enabled');
 
-        $fortify2faRoutes = [
-            'two-factor.login',
-            'two-factor.confirm',
-        ];
-
-        if ($maintenanceEnabled && $isPostRequest && ! Auth::check()) {
+        // Keep authentication entry points reachable so eligible staff can log in.
+        if ($maintenanceEnabled && ($this->isLoginRoute($request) || $this->isTwoFactorRoute($request))) {
             return $next($request);
         }
 
-        $isFortify2faRoute = in_array($request->route()?->getName(), $fortify2faRoutes, true);
-        if ($maintenanceEnabled && $isFortify2faRoute) {
-            return $next($request);
+        // Staff above the threshold bypass maintenance; keep them off the notice page.
+        if ($this->canBypassMaintenance($request)) {
+            return $isMaintenanceRequest ? redirect(app(FrontendUrls::class)->route('me.show')) : $next($request);
         }
 
-        if (Auth::check() && Auth::user()->rank >= setting('min_maintenance_login_rank')) {
-            if ($isMaintenanceRequest) {
-                return to_route('me.show');
-            }
-
-            return $next($request);
+        if ($maintenanceEnabled && ! $isMaintenanceRequest) {
+            return AccessResponse::make($request, 'maintenance', 'The hotel is under maintenance.', 503, 'maintenance.show');
         }
 
-        if (Auth::check() && Auth::user()->rank >= setting('min_maintenance_login_rank') && $isMaintenanceRequest) {
-            return to_route('me.show');
-        }
-
-        if ($maintenanceEnabled && ! $isMaintenanceRequest && ! $isPostRequest) {
-            return to_route('maintenance.show');
-        }
-
-        if (! $maintenanceEnabled && $isMaintenanceRequest && ! $isPostRequest) {
-            return to_route('welcome');
-        }
-
-        if ($maintenanceEnabled && ! $isMaintenanceRequest && Auth::check() && Auth::user()->rank < setting('min_maintenance_login_rank')) {
-            return to_route('maintenance.show');
+        if (! $maintenanceEnabled && $isMaintenanceRequest) {
+            return redirect(app(FrontendUrls::class)->route('welcome'));
         }
 
         return $next($request);
+    }
+
+    private function canBypassMaintenance(Request $request): bool
+    {
+        // Default to rank 5 when unset; a missing setting must not let every
+        // logged-in user through ("rank >= null" is always true).
+        $user = $request->user();
+
+        return $user instanceof User
+            && $user->rank >= (int) (setting('min_maintenance_login_rank') ?: 5);
+    }
+
+    private function isTwoFactorRoute(Request $request): bool
+    {
+        return $request->routeIs('two-factor.login', 'two-factor.login.store');
+    }
+
+    private function isLoginRoute(Request $request): bool
+    {
+        return $request->routeIs('login', 'login.store', 'filament.*.auth.login');
     }
 }

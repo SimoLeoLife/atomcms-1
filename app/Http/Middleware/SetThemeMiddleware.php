@@ -11,10 +11,16 @@ class SetThemeMiddleware
 {
     public function handle(Request $request, Closure $next): Response
     {
-        if (setting('theme') === '' || setting('theme' === '1')) {
-            Theme::set('atom');
+        if (config('atom.mode') === 'headless' || $request->is('api/*', 'housekeeping', 'housekeeping/*', 'sanctum/*')) {
+            return $next($request);
+        }
+
+        $theme = setting('theme');
+
+        if (empty($theme) || $theme === '1') {
+            Theme::set('atom', config('theme.parent'));
         } else {
-            Theme::set(setting('theme'));
+            Theme::set($theme, config('theme.parent'));
         }
 
         return $next($request);

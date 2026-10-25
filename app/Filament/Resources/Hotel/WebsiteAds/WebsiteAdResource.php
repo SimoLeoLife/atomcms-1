@@ -2,6 +2,7 @@
 
 namespace App\Filament\Resources\Hotel\WebsiteAds;
 
+use App\Filament\Concerns\TranslatableResource;
 use App\Filament\Resources\Hotel\WebsiteAds\Pages\CreateWebsiteAd;
 use App\Filament\Resources\Hotel\WebsiteAds\Pages\ListWebsiteAds;
 use App\Models\WebsiteAd;
@@ -13,17 +14,20 @@ use Filament\Tables\Columns\ImageColumn;
 use Filament\Tables\Columns\Layout\Stack;
 use Filament\Tables\Columns\TextColumn;
 use Filament\Tables\Table;
+use Illuminate\Support\Str;
 use Livewire\Features\SupportFileUploads\TemporaryUploadedFile;
 
 class WebsiteAdResource extends Resource
 {
+    use TranslatableResource;
+
     protected static ?string $model = WebsiteAd::class;
 
     protected static string|\UnitEnum|null $navigationGroup = 'Hotel';
 
-    protected static ?string $navigationLabel = 'ADS Images';
-
     protected static string|\BackedEnum|null $navigationIcon = 'heroicon-o-sparkles';
+
+    public static string $translateIdentifier = 'website-ads';
 
     public static function form(Schema $schema): Schema
     {
@@ -32,16 +36,13 @@ class WebsiteAdResource extends Resource
                 FileUpload::make('image')
                     ->label('Image')
                     ->disk('ads')
-                    ->preserveFilenames()
                     ->image()
                     ->rules(['required', 'image', 'mimes:jpeg,png,jpg,gif'])
                     ->validationMessages([
                         'required' => 'Please upload an image.', 'image' => 'The file must be a valid image.', 'mimes' => 'Only JPEG, PNG, JPG, and GIF images are allowed.'])
                     ->required()
                     ->getUploadedFileNameForStorageUsing(
-                        function (TemporaryUploadedFile $file): string {
-                            return strtolower(str_replace([' ', '-', 'æ', 'ø', 'å'], ['_', '_', 'ae', 'oe', 'aa'], $file->getClientOriginalName()));
-                        },
+                        fn (TemporaryUploadedFile $file): string => Str::ulid() . '.' . $file->getClientOriginalExtension(),
                     ),
             ]);
     }

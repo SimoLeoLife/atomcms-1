@@ -12,28 +12,26 @@ return new class extends Migration
      */
     public function up(): void
     {
-        Schema::table('users', function (Blueprint $table) {
-            if (columnExists('users', 'two_factor_secret')) {
-                Schema::dropColumns('users', 'two_factor_secret');
+        $users = cmsUserTable();
+        $addSecret = ! Schema::hasColumn($users, 'two_factor_secret');
+        $addRecoveryCodes = ! Schema::hasColumn($users, 'two_factor_recovery_codes');
+        $addConfirmedAt = Fortify::confirmsTwoFactorAuthentication()
+            && ! Schema::hasColumn($users, 'two_factor_confirmed_at');
+
+        Schema::table($users, function (Blueprint $table) use ($addConfirmedAt, $addRecoveryCodes, $addSecret) {
+            if ($addSecret) {
+                $table->text('two_factor_secret')
+                    ->after('password')
+                    ->nullable();
             }
 
-            if (columnExists('users', 'two_factor_recovery_codes')) {
-                Schema::dropColumns('users', 'two_factor_recovery_codes');
+            if ($addRecoveryCodes) {
+                $table->text('two_factor_recovery_codes')
+                    ->after('two_factor_secret')
+                    ->nullable();
             }
 
-            $table->text('two_factor_secret')
-                ->after('password')
-                ->nullable();
-
-            $table->text('two_factor_recovery_codes')
-                ->after('two_factor_secret')
-                ->nullable();
-
-            if (Fortify::confirmsTwoFactorAuthentication()) {
-                if (columnExists('users', 'two_factor_confirmed_at')) {
-                    Schema::dropColumns('users', 'two_factor_confirmed_at');
-                }
-
+            if ($addConfirmedAt) {
                 $table->timestamp('two_factor_confirmed_at')
                     ->after('two_factor_recovery_codes')
                     ->nullable();
@@ -46,7 +44,8 @@ return new class extends Migration
      */
     public function down(): void
     {
-        Schema::table('users', function (Blueprint $table) {
+        $users = cmsUserTable();
+        Schema::table($users, function (Blueprint $table) {
             $table->dropColumn(array_merge([
                 'two_factor_secret',
                 'two_factor_recovery_codes',

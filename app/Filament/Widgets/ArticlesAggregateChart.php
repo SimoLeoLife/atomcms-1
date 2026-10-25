@@ -2,15 +2,18 @@
 
 namespace App\Filament\Widgets;
 
-use App\Models\Article;
+use App\Models\Articles\WebsiteArticle;
 use Filament\Widgets\ChartWidget;
 use Flowframe\Trend\Trend;
 use Flowframe\Trend\TrendValue;
 use Illuminate\Contracts\Support\Htmlable;
+use Illuminate\Support\Facades\Cache;
 
 class ArticlesAggregateChart extends ChartWidget
 {
     protected static ?int $sort = 2;
+
+    protected ?string $pollingInterval = null;
 
     protected ?string $maxHeight = '300px';
 
@@ -28,13 +31,19 @@ class ArticlesAggregateChart extends ChartWidget
 
     protected function getData(): array
     {
-        $data = Trend::model(Article::class)
-            ->between(
-                start: now()->startOfMonth(),
-                end: now()->endOfMonth(),
-            )
-            ->perDay()
-            ->count();
+        $data = Cache::remember(
+            'housekeeping.dashboard.articles-trend.v2',
+            300,
+            fn () => Trend::model(WebsiteArticle::class)
+                ->between(
+                    start: now()->startOfMonth(),
+                    end: now()->endOfMonth(),
+                )
+                ->perDay()
+                ->count()
+                ->map(fn (TrendValue $value): array => ['aggregate' => $value->aggregate, 'date' => $value->date])
+                ->all(),
+        );
 
         $label = __('filament::resources.stats.articles_chart.label');
 
@@ -42,10 +51,10 @@ class ArticlesAggregateChart extends ChartWidget
             'datasets' => [
                 [
                     'label' => $label,
-                    'data' => $data->map(fn (TrendValue $value) => $value->aggregate),
+                    'data' => array_column($data, 'aggregate'),
                 ],
             ],
-            'labels' => $data->map(fn (TrendValue $value) => $value->date),
+            'labels' => array_column($data, 'date'),
         ];
     }
 

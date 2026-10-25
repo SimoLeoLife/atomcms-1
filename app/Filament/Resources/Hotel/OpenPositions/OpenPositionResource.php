@@ -2,6 +2,8 @@
 
 namespace App\Filament\Resources\Hotel\OpenPositions;
 
+use App\Emulator\Contracts\RankRepository;
+use App\Filament\Concerns\TranslatableResource;
 use App\Filament\Resources\Hotel\OpenPositions\Pages\CreateOpenPosition;
 use App\Filament\Resources\Hotel\OpenPositions\Pages\EditOpenPosition;
 use App\Filament\Resources\Hotel\OpenPositions\Pages\ListOpenPositions;
@@ -12,40 +14,84 @@ use Filament\Actions\EditAction;
 use Filament\Forms\Components\DateTimePicker;
 use Filament\Forms\Components\Select;
 use Filament\Forms\Components\Textarea;
+use Filament\Forms\Components\ToggleButtons;
 use Filament\Notifications\Notification;
 use Filament\Resources\Resource;
+use Filament\Schemas\Components\Utilities\Get;
 use Filament\Schemas\Schema;
 use Filament\Tables\Columns\TextColumn;
 use Filament\Tables\Table;
+use Illuminate\Database\Eloquent\Builder;
 
 class OpenPositionResource extends Resource
 {
+    use TranslatableResource;
+
     protected static ?string $model = WebsiteOpenPosition::class;
 
     protected static string|\BackedEnum|null $navigationIcon = 'heroicon-o-briefcase';
 
     protected static string|\UnitEnum|null $navigationGroup = 'Hotel';
 
+    public static string $translateIdentifier = 'open-positions';
+
     public static function form(Schema $schema): Schema
     {
         return $schema
             ->components([
+                ToggleButtons::make('position_kind')
+                    ->label('Type')
+                    ->inline()
+                    ->options([
+                        'rank' => 'Ranks',
+                        'team' => 'Teams',
+                    ])
+                    ->default('rank')
+                    ->required()
+                    ->live()
+                    ->grouped(),
+
                 Select::make('permission_id')
                     ->label('Rank')
-                    ->relationship('permission', 'rank_name')
-                    ->required()
+                    ->relationship('permission', app(RankRepository::class)->displayNameColumn())
                     ->searchable()
                     ->preload()
-                    ->unique(ignoreRecord: true)
-                    ->placeholder('Select a rank'),
+                    ->placeholder('Select a rank')
+                    ->visible(fn (Get $get) => $get('position_kind') === 'rank')
+                    ->required(fn (Get $get) => $get('position_kind') === 'rank')
+                    ->dehydrated(fn (Get $get) => $get('position_kind') === 'rank')
+                    ->unique(
+                        table: WebsiteOpenPosition::class,
+                        column: 'permission_id',
+                        ignoreRecord: true,
+                    ),
+
+                Select::make('team_id')
+                    ->label('Team')
+                    ->relationship('team', 'rank_name')
+                    ->searchable()
+                    ->preload()
+                    ->placeholder('Select a team')
+                    ->visible(fn (Get $get) => $get('position_kind') === 'team')
+                    ->required(fn (Get $get) => $get('position_kind') === 'team')
+                    ->dehydrated(fn (Get $get) => $get('position_kind') === 'team')
+                    ->unique(
+                        table: WebsiteOpenPosition::class,
+                        column: 'team_id',
+                        ignoreRecord: true,
+                    )
+                    ->placeholder('Select a team'),
+
                 Textarea::make('description')
                     ->label('Position Description')
                     ->required()
                     ->maxLength(65535)
                     ->columnSpanFull(),
+
                 DateTimePicker::make('apply_from')
                     ->label('Application Start Date')
                     ->nullable(),
+
                 DateTimePicker::make('apply_to')
                     ->label('Application End Date')
                     ->nullable(),
@@ -56,56 +102,72 @@ class OpenPositionResource extends Resource
     {
         return $table
             ->columns([
+                TextColumn::make('position_kind')
+                    ->label('Type')
+                    ->badge()
+                    ->formatStateUsing(fn (string $state) => ucfirst($state))
+                    ->sortable(),
+
                 TextColumn::make('permission.rank_name')
                     ->label('Rank')
-                    ->sortable()
-                    ->searchable(),
+                    ->toggleable(isToggledHiddenByDefault: false),
+
+                TextColumn::make('team.rank_name')
+                    ->label('Team')
+                    ->toggleable(isToggledHiddenByDefault: true),
+
                 TextColumn::make('description')
                     ->label('Description')
                     ->limit(50)
                     ->searchable(),
+
                 TextColumn::make('apply_from')
                     ->label('Apply From')
                     ->dateTime()
                     ->sortable(),
+
                 TextColumn::make('apply_to')
                     ->label('Apply To')
                     ->dateTime()
                     ->sortable(),
+
                 TextColumn::make('created_at')
                     ->label('Created')
                     ->dateTime()
                     ->sortable(),
-            ])
-            ->filters([
             ])
             ->recordActions([
                 EditAction::make(),
                 DeleteAction::make()
                     ->requiresConfirmation()
                     ->modalHeading('Delete Open Position')
-                    ->modalDescription('This will also delete all related staff applications. Are you sure?')
+                    ->modalDescription('This will also delete related rank-based staff applications (if any). Are you sure?')
                     ->modalSubmitActionLabel('Yes, delete')
                     ->successNotification(
                         Notification::make()
                             ->success()
                             ->title('Open Position Deleted')
-                            ->body('The open position and its related staff applications have been deleted successfully.'),
+                            ->body('The open position and its related staff applications (if rank-based) have been deleted successfully.'),
                     ),
             ])
             ->toolbarActions([
                 DeleteBulkAction::make()
                     ->requiresConfirmation()
                     ->modalHeading('Delete Open Positions')
-                    ->modalDescription('This will also delete all related staff applications for the selected positions. Are you sure?')
+                    ->modalDescription('This will also delete related rank-based staff applications (if any). Are you sure?')
                     ->modalSubmitActionLabel('Yes, delete')
                     ->successNotification(
                         Notification::make()
                             ->success()
                             ->title('Open Positions Deleted')
-                            ->body('The selected open positions and their related staff applications have been deleted successfully.'),
+                            ->body('The selected open positions and their related applications (if rank-based) have been deleted successfully.'),
                     ),
             ]);
+    }
+
+    public static function getEloquentQuery(): Builder
+    {
+        return parent::getEloquentQuery()->with(['permission', 'team']);
     }
 
     public static function getPages(): array

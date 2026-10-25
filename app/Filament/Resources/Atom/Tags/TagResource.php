@@ -2,12 +2,12 @@
 
 namespace App\Filament\Resources\Atom\Tags;
 
+use App\Filament\Concerns\TranslatableResource;
 use App\Filament\Resources\Atom\Tags\Pages\CreateTag;
 use App\Filament\Resources\Atom\Tags\Pages\EditTag;
 use App\Filament\Resources\Atom\Tags\Pages\ListTags;
 use App\Filament\Resources\Atom\Tags\Pages\ViewTag;
 use App\Filament\Resources\Atom\Tags\RelationManagers\ArticlesRelationManager;
-use App\Filament\Traits\TranslatableResource;
 use App\Models\Articles\Tag;
 use Filament\Actions\DeleteBulkAction;
 use Filament\Actions\EditAction;
@@ -15,10 +15,12 @@ use Filament\Actions\ViewAction;
 use Filament\Forms\Components\ColorPicker;
 use Filament\Forms\Components\TextInput;
 use Filament\Resources\Resource;
+use Filament\Schemas\Components\Component;
 use Filament\Schemas\Components\Tabs;
 use Filament\Schemas\Components\Tabs\Tab;
 use Filament\Schemas\Schema;
 use Filament\Tables\Columns\ColorColumn;
+use Filament\Tables\Columns\Column;
 use Filament\Tables\Columns\TextColumn;
 use Filament\Tables\Table;
 
@@ -42,6 +44,7 @@ class TagResource extends Resource
             ->components(static::getForm());
     }
 
+    /** @return array<int, Component> */
     public static function getForm(): array
     {
         return [
@@ -83,6 +86,7 @@ class TagResource extends Resource
             ]);
     }
 
+    /** @return array<int, Column> */
     public static function getTable(): array
     {
         return [

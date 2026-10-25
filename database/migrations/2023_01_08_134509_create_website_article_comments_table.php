@@ -8,21 +8,15 @@ return new class extends Migration
 {
     public function up(): void
     {
-        if (config('habbo.migrations.rename_tables') && Schema::hasTable('website_article_comments')) {
-            dropForeignKeyIfExists('website_article_comments', 'article_id');
-            dropForeignKeyIfExists('website_article_comments', 'user_id');
-            Schema::rename('website_article_comments', sprintf('website_article_comments_%s', time()));
-        }
-
         Schema::create('website_article_comments', function (Blueprint $table) {
             $table->id();
             $table->unsignedBigInteger('article_id');
-            $table->integer('user_id');
+            $table->playerId('user_id');
             $table->string('comment');
             $table->timestamps();
 
             $table->foreign('article_id')->references('id')->on('website_articles')->cascadeOnDelete();
-            $table->foreign('user_id')->references('id')->on('users')->cascadeOnDelete();
+            $table->foreignPlayer('user_id')->cascadeOnDelete();
         });
     }
 

@@ -4,45 +4,63 @@ namespace App\Services\Articles;
 
 use App\Models\Articles\WebsiteArticle;
 use App\Models\Articles\WebsiteArticleComment;
-use Illuminate\Http\RedirectResponse;
-use Illuminate\Support\Facades\Auth;
+use App\Models\User;
+use App\Rules\WebsiteWordfilterRule;
+use Illuminate\Database\Eloquent\Collection;
+use Illuminate\Pagination\LengthAwarePaginator;
+use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Gate;
+use Illuminate\Support\Facades\Validator;
+use Illuminate\Validation\ValidationException;
 
 class CommentService
 {
-    public function store(string $comment, WebsiteArticle $article): mixed
+    public function __construct(private readonly InteractionRateLimiter $rateLimiter) {}
+
+    /** @return array<string, mixed> */
+    public static function rules(): array
     {
-        if ($article->userHasReachedArticleCommentLimit()) {
-            return redirect()->back()->withErrors([
-                'message' => __('You can only comment :amount times per article', ['amount' => setting('max_comment_per_article')]),
-            ]);
-        }
-
-        if (! $article->can_comment) {
-            return redirect()->back()->withErrors([
-                'message' => __('This article has been locked from receiving comments'),
-            ]);
-        }
-
-        return $article->comments()->create([
-            'user_id' => Auth::id(),
-            'comment' => $comment,
-        ]);
+        return ['comment' => ['required', 'string', 'min:2', 'max:255', new WebsiteWordfilterRule]];
     }
 
-    public function destroy(WebsiteArticleComment $comment): bool|RedirectResponse|null
+    /** @return Collection<int, WebsiteArticleComment>|LengthAwarePaginator<int, WebsiteArticleComment> */
+    public function forArticle(WebsiteArticle $article, bool $paginate = true): Collection|LengthAwarePaginator
     {
-        if (! $comment->canBeDeleted()) {
-            return redirect()->back()->withErrors([
-                'message' => __('You can only delete your own comments'),
-            ]);
-        }
+        $query = $article->comments()->with('user:id,username,motto,look,online')->orderBy('id');
 
-        if (! $comment->delete()) {
-            return redirect()->back()->withErrors([
-                'message' => __('An error occurred while deleting the comment'),
-            ]);
-        }
+        return $paginate ? $query->paginate(20) : $query->get();
+    }
 
-        return $comment->delete();
+    public function store(User $user, string $comment, WebsiteArticle $article): WebsiteArticleComment
+    {
+        Validator::make(['comment' => $comment], self::rules())->validate();
+        $this->rateLimiter->hit($user, 'comments', 10);
+
+        return DB::transaction(function () use ($user, $comment, $article): WebsiteArticleComment {
+            $article = WebsiteArticle::whereKey($article->id)->lockForUpdate()->firstOrFail();
+
+            if ($article->comments()->where('user_id', $user->id)->count() >= (int) setting('max_comment_per_article')) {
+                throw ValidationException::withMessages([
+                    'comment' => __('You can only comment :amount times per article', ['amount' => setting('max_comment_per_article')]),
+                ]);
+            }
+
+            if (! $article->can_comment) {
+                throw ValidationException::withMessages([
+                    'comment' => __('This article has been locked from receiving comments'),
+                ]);
+            }
+
+            return $article->comments()->create([
+                'user_id' => $user->id,
+                'comment' => $comment,
+            ]);
+        }, attempts: 3);
+    }
+
+    public function destroy(User $user, WebsiteArticleComment $comment): void
+    {
+        Gate::forUser($user)->authorize('delete', $comment);
+        $comment->deleteOrFail();
     }
 }

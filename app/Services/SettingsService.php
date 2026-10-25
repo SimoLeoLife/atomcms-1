@@ -6,31 +6,69 @@ use App\Models\Miscellaneous\WebsiteSetting;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Schema;
-use Throwable;
 
 class SettingsService
 {
-    public ?Collection $settings;
+    /** @var Collection<string, mixed>|null */
+    private ?Collection $cachedSettings = null;
 
-    public function __construct()
+    public function __construct(private readonly InstallationService $installation) {}
+
+    /** @return Collection<string, mixed> */
+    protected function settings(): Collection
     {
-        try {
-            Cache::remember('website_settings', now()->addMinutes(5), function () {
-                return Schema::hasTable('website_settings') ? WebsiteSetting::all()->pluck('value', 'key') : collect();
-            });
-
-            $this->settings = Cache::get('website_settings');
-        } catch (Throwable $e) {
-            $this->settings = collect();
+        if ($this->cachedSettings !== null) {
+            return $this->cachedSettings;
         }
+
+        if ($this->isInstallationIncomplete()) {
+            $this->cachedSettings = $this->fetchSettings();
+
+            return $this->cachedSettings;
+        }
+
+        $this->cachedSettings = collect(Cache::rememberForever('website_settings', function () {
+            return $this->fetchSettings()->toArray();
+        }));
+
+        return $this->cachedSettings;
     }
 
-    public function getOrDefault(string $settingName, ?string $default = null): string
+    /**
+     * @template TDefault
+     *
+     * @param  TDefault  $default
+     *
+     * @return string|TDefault
+     */
+    public function getOrDefault(string $key, mixed $default = null): mixed
     {
-        if (! $this->settings) {
-            return (string) $default;
+        return $this->settings()->get($key, $default);
+    }
+
+    /**
+     * Drop the persisted and memoized settings so the next read refetches.
+     * Instance-level, so objects already holding the singleton see fresh
+     * values instead of a stale forgotten instance.
+     */
+    public function refresh(): void
+    {
+        Cache::forget('website_settings');
+        $this->cachedSettings = null;
+    }
+
+    private function isInstallationIncomplete(): bool
+    {
+        return ! $this->installation->isComplete();
+    }
+
+    /** @return Collection<string, mixed> */
+    private function fetchSettings(): Collection
+    {
+        if (! Schema::hasTable('website_settings')) {
+            return collect();
         }
 
-        return (string) $this->settings->get($settingName, $default);
+        return WebsiteSetting::query()->pluck('value', 'key');
     }
 }

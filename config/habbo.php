@@ -3,16 +3,26 @@
 return [
     'site' => [
         'site_url' => env('APP_URL', 'http://localhost'),
-        'default_name' => env('APP_NAME', 'Atom'),
+        'default_name' => env('APP_NAME', 'Atom CMS'),
         'recaptcha_site_key' => env('GOOGLE_RECAPTCHA_SITE_KEY'),
         'recaptcha_secret_key' => env('GOOGLE_RECAPTCHA_SECRET_KEY'),
         'convert_passwords' => env('CONVERT_PASSWORDS'),
         'force_https' => env('FORCE_HTTPS', false),
-        'date_format' => env('DATE_FORMAT', 'Y-m-d - h:m:s'),
+        'date_format' => env('DATE_FORMAT', 'Y-m-d H:i:s'),
         'default_language' => env('APP_LOCALE', 'en'),
         'debug_mode_enabled' => env('APP_DEBUG', false),
         'site_environment' => env('APP_ENV'),
     ],
+
+    /*
+    | Proxies allowed to set X-Forwarded-* headers so request()->ip() reflects
+    | the real client (used for bans, rate limits and per-IP registration caps).
+    | Defaults to "*" since almost every hotel sits behind Cloudflare/nginx;
+    | restrict the origin to your proxy at the server level. Set a
+    | comma-separated list of proxy IPs/CIDRs to trust only those, or set it
+    | empty when the server is directly exposed (trust no forwarded headers).
+    */
+    'trusted_proxies' => env('TRUSTED_PROXIES', '*'),
 
     'reactions' => [
         'bad', 'crying', 'good', 'happy', 'taut', 'impatient', 'inlove', 'laugh', 'proud', 'wow',
@@ -21,19 +31,23 @@ return [
     ],
 
     'migrations' => [
-        // Only set this to true in the .env file if your CERTAIN that you want to rename coliding table names
+        // When enabled, migrations move colliding tables and columns (plus
+        // their indexes and foreign keys) aside as old_<timestamp>_<name> so
+        // the CMS schema can take the canonical names. Only enable it if you
+        // are certain the colliding data is safe to archive.
         'rename_tables' => env('RENAME_COLLIDING_TABLES', false),
     ],
 
     'rcon' => [
-        'domain' => AF_INET,
-        'type' => SOCK_STREAM,
-        'protocol' => SOL_TCP,
+        'connect_timeout_seconds' => (float) env('RCON_CONNECT_TIMEOUT', 1),
+        'read_timeout_seconds' => (float) env('RCON_READ_TIMEOUT', 2),
     ],
 
     'client' => [
         'nitro_path' => env('NITRO_CLIENT_PATH', '/client/html5/nitro-client'), // Path where the index.html is
         'flash_enabled' => env('FLASH_CLIENT_ENABLED', false),
+        // AIR launcher hand-off: habbo://hab?server=<APP_URL host>&token=<sso>.
+        'air_enabled' => env('AIR_CLIENT_ENABLED', false),
     ],
 
     'flash' => [
@@ -65,7 +79,7 @@ return [
         'sandbox' => [
             'client_id' => env('PAYPAL_SANDBOX_CLIENT_ID', ''),
             'client_secret' => env('PAYPAL_SANDBOX_CLIENT_SECRET', ''),
-            'app_id' => env('paypal_sandbox_app_id', 'APP-80W284485P519543T'),
+            'app_id' => env('PAYPAL_SANDBOX_APP_ID', 'APP-80W284485P519543T'),
         ],
         'live' => [
             'client_id' => env('PAYPAL_LIVE_CLIENT_ID', ''),
@@ -75,8 +89,9 @@ return [
 
         'payment_action' => env('PAYPAL_PAYMENT_ACTION', 'Order'), // Can only be 'Sale', 'Authorization' or 'Order'
         'currency' => env('PAYPAL_CURRENCY', 'USD'),
+        'webhook_id' => env('PAYPAL_WEBHOOK_ID'),
         'notify_url' => env('PAYPAL_NOTIFY_URL', ''), // Change this accordingly for your application.
         'locale' => env('PAYPAL_LOCALE', 'en_US'), // force gateway language  i.e. it_IT, es_ES, en_US ... (for express checkout only)
-        'validate_ssl' => env('PAYPAL_VALIDATE_SSL', true), // Validate SSL when creating api client.
+        'validate_ssl' => true,
     ],
 ];

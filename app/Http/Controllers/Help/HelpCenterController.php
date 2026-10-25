@@ -3,14 +3,15 @@
 namespace App\Http\Controllers\Help;
 
 use App\Http\Controllers\Controller;
-use App\Models\Help\WebsiteHelpCenterCategory;
+use App\Services\Help\TicketService;
+use Illuminate\View\View;
 
 class HelpCenterController extends Controller
 {
-    public function __invoke()
+    public function __invoke(): View
     {
         return view('help-center.index', [
-            'categories' => WebsiteHelpCenterCategory::orderBy('position')->get(),
+            'categories' => app(TicketService::class)->categories(),
         ]);
     }
 }

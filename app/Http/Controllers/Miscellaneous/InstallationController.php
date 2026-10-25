@@ -6,25 +6,28 @@ use App\Http\Controllers\Controller;
 use App\Models\Miscellaneous\WebsiteInstallation;
 use App\Models\Miscellaneous\WebsiteSetting;
 use App\Rules\ValidateInstallationKeyRule;
-use Exception;
+use App\Services\InstallationSetup;
+use Illuminate\Database\Eloquent\Collection;
+use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Str;
+use Illuminate\View\View;
 
 class InstallationController extends Controller
 {
-    public function index()
+    public function index(): View
     {
         return view('installation.index');
     }
 
-    public function storeInstallationKey(Request $request)
+    public function storeInstallationKey(Request $request): RedirectResponse
     {
         $request->validate([
             'installation_key' => ['required', 'string', 'max:255', new ValidateInstallationKeyRule],
         ]);
 
-        WebsiteInstallation::first()->update([
+        $this->installation()->update([
             'step' => 1,
             'user_ip' => $request->ip(),
         ]);
@@ -32,34 +35,45 @@ class InstallationController extends Controller
         return to_route('installation.show-step', 1);
     }
 
-    public function showStep($currentStep)
+    public function showStep(int $currentStep): View|RedirectResponse
     {
-        $settings = $this->getSettingsForStep((int) $currentStep);
+        // A resubmitted form, a stale tab or a hand-typed URL can ask for a
+        // step either side of the wizard. Send them to the nearest real one
+        // rather than showing them an exception.
+        if ($currentStep !== $this->clamp($currentStep)) {
+            return to_route('installation.show-step', $this->clamp($currentStep));
+        }
 
-        return view('installation.step-' . $currentStep, [
-            'settings' => $settings,
+        /** @var view-string $view */
+        $view = "installation.step-{$currentStep}";
+
+        return view($view, [
+            'settings' => $this->getSettingsForStep($currentStep),
         ]);
     }
 
-    public function saveStepSettings(Request $request)
+    public function saveStepSettings(Request $request): RedirectResponse
     {
-        $this->updateSettings($request);
+        $installation = $this->installation();
 
-        WebsiteInstallation::increment('step');
+        $this->updateSettings($request, (int) $installation->step);
 
-        return to_route('installation.show-step', WebsiteInstallation::first()->step);
+        $installation->update(['step' => $this->clamp($installation->step + 1)]);
+
+        return to_route('installation.show-step', $installation->step);
     }
 
-    public function previousStep()
+    public function previousStep(): RedirectResponse
     {
-        WebsiteInstallation::decrement('step');
+        $installation = $this->installation();
+        $installation->update(['step' => $this->clamp($installation->step - 1)]);
 
-        return to_route('installation.show-step', WebsiteInstallation::first()->step);
+        return to_route('installation.show-step', $installation->step);
     }
 
-    public function restartInstallation()
+    public function restartInstallation(): RedirectResponse
     {
-        WebsiteInstallation::first()->update([
+        $this->installation()->update([
             'step' => 0,
             'installation_key' => Str::uuid(),
             'user_ip' => null,
@@ -72,48 +86,73 @@ class InstallationController extends Controller
         return to_route('installation.index');
     }
 
-    public function completeInstallation()
+    public function completeInstallation(): RedirectResponse
     {
-        WebsiteInstallation::latest()->first()->update([
-            'completed' => true,
-        ]);
-
-        if (Cache::has('website_permissions')) {
-            Cache::forget('website_permissions');
-        }
-
-        if (Cache::has('website_settings')) {
-            Cache::forget('website_settings');
-        }
+        app(InstallationSetup::class)->complete();
 
         return to_route('welcome');
     }
 
-    private function updateSettings(Request $request)
+    /**
+     * Only the keys that belong to the step being saved may be written, and
+     * only with scalar string values; everything else in the request payload
+     * is ignored.
+     */
+    private function updateSettings(Request $request, int $step): void
     {
+        $allowedKeys = $this->getSettingsForStep($step)->pluck('key');
+
+        $shared = app(InstallationSetup::class);
+        $essential = array_intersect_key($request->only($allowedKeys->all()), $shared->rules());
+        $shared->configure($essential);
+
         foreach ($request->except('_token') as $key => $value) {
+            if (array_key_exists($key, $shared->rules())) {
+                continue;
+            }
+            if (! $allowedKeys->contains($key) || (! is_string($value) && $value !== null)) {
+                continue;
+            }
+
             WebsiteSetting::where('key', '=', $key)->update([
                 'value' => $value ?? '',
             ]);
         }
+
+        // Cache will be automatically cleared by WebsiteSetting model events
     }
 
-    private function getSettingsForStep(int $step)
+    private function installation(): WebsiteInstallation
     {
-        $settingsData = array_chunk(WebsiteSetting::all()->pluck('key')->toArray(), ceil(WebsiteSetting::count() / 4));
+        return WebsiteInstallation::query()->oldest('id')->firstOrFail();
+    }
 
-        $settings = match ($step) {
-            1 => $settingsData[0] ?? [],
-            2 => $settingsData[1] ?? [],
-            3 => $settingsData[2] ?? [],
-            4 => $settingsData[3] ?? [],
-            5 => [], // Completion step has no settings
-            default => throw new Exception('Step does not exist'),
-        };
+    private function clamp(int $step): int
+    {
+        return max(WebsiteInstallation::FIRST_STEP, min(WebsiteInstallation::LAST_STEP, $step));
+    }
+
+    /**
+     * The wizard splits every setting into SETTING_STEPS equal chunks; the
+     * final step is the completion screen and carries none.
+     *
+     * @return Collection<int, WebsiteSetting>
+     */
+    private function getSettingsForStep(int $step): Collection
+    {
+        $keys = WebsiteSetting::query()->orderBy('id')->pluck('key')->all();
+
+        $chunkSize = max(1, (int) ceil(count($keys) / WebsiteInstallation::SETTING_STEPS));
+        $chunks = array_chunk($keys, $chunkSize);
+
+        // The completion step carries no settings, and so does any chunk the
+        // split did not produce.
+        $settings = $chunks[$step - 1] ?? [];
 
         return WebsiteSetting::query()
             ->whereIn('key', $settings)
-            ->select(['key', 'value', 'comment'])
+            ->orderBy('id')
+            ->select(['id', 'key', 'value', 'comment'])
             ->get();
     }
 }

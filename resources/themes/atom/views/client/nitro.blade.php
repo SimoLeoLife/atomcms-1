@@ -4,12 +4,15 @@
 <head>
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
+    <meta name="robots" content="noindex, nofollow">
 
     <title>{{ setting('hotel_name') }} - Nitro</title>
 
     <link href="https://fonts.googleapis.com/css2?family=Ubuntu+Condensed&display=swap" rel="stylesheet">
 
-    @vite(['resources/themes/' .  setting('theme') . '/css/app.scss', 'resources/themes/' .  setting('theme') . '/js/app.js'], 'build')
+    @livewireStyles
+    @livewireScriptConfig
+    @vite(['resources/themes/' .  setting('theme') . '/css/app.css', 'resources/themes/' .  setting('theme') . '/js/app.js'], 'build')
 </head>
 
 <body class="overflow-hidden" id="nitro-client">
@@ -43,7 +46,7 @@
 
     {{-- Show disconnected message on client if the user has been disconnected --}}
     <div id="disconnected" class="h-screen w-full">
-        <div class="absolute h-full w-full bg-black bg-opacity-50"></div>
+        <div class="absolute h-full w-full bg-black/50"></div>
 
         <div class="relative flex h-full w-full flex-col items-center justify-center gap-4">
             <h2 class="text-2xl text-white">
@@ -57,7 +60,7 @@
                     {{ __('Reload client') }}
                 </button>
 
-                <a href="{{ route('me.show') }}">
+                <a data-turbolinks="false" href="{{ route('me.show') }}">
                     <x-form.secondary-button>
                         {{ __('Back to website') }}
                     </x-form.secondary-button>

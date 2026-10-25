@@ -2,6 +2,7 @@
 
 namespace App\Filament\Resources\User\Users\RelationManagers;
 
+use App\Filament\Concerns\HasKeylessTableRecords;
 use App\Filament\Resources\Hotel\ChatlogRooms\ChatlogRoomResource;
 use Filament\Resources\RelationManagers\RelationManager;
 use Filament\Schemas\Schema;
@@ -9,9 +10,11 @@ use Filament\Tables\Table;
 
 class ChatLogRelationManager extends RelationManager
 {
+    use HasKeylessTableRecords;
+
     protected static string $relationship = 'chatLogs';
 
-    protected static $targetResource = ChatlogRoomResource::class;
+    protected static ?string $targetResource = ChatlogRoomResource::class;
 
     public function form(Schema $schema): Schema
     {

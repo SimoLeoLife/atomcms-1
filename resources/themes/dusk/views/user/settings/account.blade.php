@@ -31,7 +31,7 @@
                     <x-form.input name="mail" type="email" value="{{ $user->mail }}" :autofocus="true" />
                 </div>
 
-                @if ($user->settings?->allow_name_change)
+                @if ($canChangeName)
                     <div class="flex flex-col gap-y-1">
                         <x-form.label for="username">
                             {{ __('Username') }}
@@ -55,6 +55,18 @@
                     </x-form.label>
 
                     <x-form.input name="motto" value="{{ $user->motto }}" />
+                </div>
+
+                <div class="flex flex-col gap-y-1">
+                    <x-form.label for="current_password">
+                        {{ __('Current password') }}
+
+                        <x-slot:info>
+                            {{ __('Required to change your e-mail address.') }}
+                        </x-slot:info>
+                    </x-form.label>
+
+                    <x-form.input name="current_password" type="password" autocomplete="current-password" />
                 </div>
 
                 <x-site-captchas />

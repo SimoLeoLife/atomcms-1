@@ -2,9 +2,11 @@
 
 namespace App\Filament\Resources\User\Bans;
 
+use App\Filament\Concerns\RequiresEmulatorDriver;
+use App\Filament\Concerns\TranslatableResource;
 use App\Filament\Resources\User\Bans\Pages\ManageBans;
+use App\Filament\Support\TruncatedTooltip;
 use App\Filament\Tables\Columns\UserAvatarColumn;
-use App\Filament\Traits\TranslatableResource;
 use App\Models\User\Ban;
 use Filament\Actions\DeleteAction;
 use Filament\Actions\DeleteBulkAction;
@@ -16,10 +18,18 @@ use Filament\Resources\Resource;
 use Filament\Schemas\Schema;
 use Filament\Tables\Columns\TextColumn;
 use Filament\Tables\Table;
+use Illuminate\Database\Eloquent\Builder;
 
 class BanResource extends Resource
 {
+    // Bound to the Arcturus bans schema; Ada has split player/IP resources.
+    use RequiresEmulatorDriver;
     use TranslatableResource;
+
+    protected static function requiredEmulatorDriver(): string
+    {
+        return 'arcturus';
+    }
 
     protected static ?string $model = Ban::class;
 
@@ -85,15 +95,7 @@ class BanResource extends Resource
 
                 TextColumn::make('ban_reason')
                     ->label(__('filament::resources.columns.reason'))
-                    ->tooltip(function (TextColumn $column): ?string {
-                        $state = $column->getState();
-
-                        if (strlen($state) <= $column->getCharacterLimit()) {
-                            return null;
-                        }
-
-                        return $state;
-                    })
+                    ->tooltip(fn (TextColumn $column): ?string => TruncatedTooltip::of($column))
                     ->limit(15)
                     ->searchable(),
 
@@ -105,12 +107,14 @@ class BanResource extends Resource
                         'ip' => __('filament::resources.common.IP'),
                         'machine' => __('filament::resources.common.Machine'),
                         'super' => __('filament::resources.common.Super'),
+                        default => $state,
                     })
                     ->color(fn (string $state): string => match ($state) {
                         'account' => 'primary',
                         'ip' => 'success',
                         'machine' => 'primary',
                         'super' => 'danger',
+                        default => 'gray',
                     }),
 
                 TextColumn::make('timestamp')
@@ -119,7 +123,7 @@ class BanResource extends Resource
 
                 TextColumn::make('ban_expire')
                     ->label(__('filament::resources.columns.expires_at'))
-                    ->formatStateUsing(fn (string $state): string => $state == 0 ? __('filament::resources.common.Never') : date('Y-m-d H:i', $state)),
+                    ->formatStateUsing(fn (string $state): string => $state === '0' ? __('filament::resources.common.Never') : date('Y-m-d H:i', (int) $state)),
             ])
             ->filters([
                 //
@@ -131,6 +135,11 @@ class BanResource extends Resource
             ->toolbarActions([
                 DeleteBulkAction::make(),
             ]);
+    }
+
+    public static function getEloquentQuery(): Builder
+    {
+        return parent::getEloquentQuery()->with(['user', 'staff']);
     }
 
     public static function getPages(): array

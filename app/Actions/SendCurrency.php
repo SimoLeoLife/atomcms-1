@@ -2,35 +2,47 @@
 
 namespace App\Actions;
 
+use App\Contracts\Rcon;
+use App\Emulator\Contracts\CurrencyRepository;
 use App\Enums\CurrencyTypes;
-use App\Services\RconService;
+use App\Exceptions\CurrencyGrantException;
+use App\Models\User;
 
 class SendCurrency
 {
-    public function __construct(protected RconService $rcon) {}
+    public function __construct(
+        private readonly Rcon $rcon,
+        private readonly CurrencyRepository $currencies,
+    ) {}
 
-    public function execute($user, string $type, ?int $amount)
+    /**
+     * Adjust a player's currency by a signed amount: live via Rcon when the
+     * emulator is online, otherwise straight to the database.
+     *
+     * @throws CurrencyGrantException when neither route is safe
+     */
+    public function execute(User $user, CurrencyTypes $currency, int $amount): void
     {
-        if (! $amount && $amount <= 0) {
-            return false;
+        if ($amount === 0) {
+            return;
         }
 
-        if ($this->rcon->isConnected) {
-            match ($type) {
-                'credits' => $this->rcon->giveCredits($user, $amount),
-                'duckets' => $this->rcon->giveDuckets($user, $amount),
-                'diamonds' => $this->rcon->giveDiamonds($user, $amount),
-                'points' => $this->rcon->giveGotw($user, $amount),
-                default => false,
-            };
-        } else {
-            match ($type) {
-                'credits' => $user->increment('credits', $amount),
-                'duckets' => $user->currencies()->where('type', CurrencyTypes::Duckets)->increment('amount', $amount),
-                'diamonds' => $user->currencies()->where('type', CurrencyTypes::Diamonds)->increment('amount', $amount),
-                'points' => $user->currencies()->where('type', CurrencyTypes::Points)->increment('amount', $amount),
-                default => false,
-            };
+        if ($this->rcon->isConnected()) {
+            $this->rcon->giveCurrency($user, $currency, $amount);
+
+            return;
         }
+
+        // A player in game holds their balance in memory and writes it back on
+        // disconnect, so a database grant made underneath them is discarded.
+        // Drivers without an RCON bridge are always in this position, which is
+        // why this is a refusal rather than a best effort.
+        if ($user->online) {
+            throw new CurrencyGrantException(
+                "Cannot grant {$currency->value} to online player {$user->id} without a connected RCON.",
+            );
+        }
+
+        $this->currencies->give($user, $currency, $amount);
     }
 }

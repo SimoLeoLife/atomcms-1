@@ -5,13 +5,17 @@
         <meta name="viewport" content="width=device-width, initial-scale=1">
         <meta name="csrf-token" content="{{ csrf_token() }}">
 
-        <title>{{ config('app.name', 'Laravel') }}</title>
+        <x-seo-meta />
+
+        <link rel="icon" type="image/gif" sizes="18x17" href="{{ asset('assets/images/home_icon.gif') }}">
 
         <!-- Fonts -->
         <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Nunito:wght@400;600;700&display=swap">
 
-        @vite(['resources/themes/' .  setting('theme') . '/css/app.scss', 'resources/themes/' .  setting('theme') . '/js/app.js'], 'build')
-        @turnstileScripts()
+        @livewireStyles
+        @livewireScriptConfig
+        @vite(['resources/themes/' .  setting('theme', 'dusk') . '/css/app.css', 'resources/themes/' .  setting('theme') . '/js/app.js'], 'build')
+        <x-turnstile.scripts />
 
         <script src="{{ asset('/assets/js/dusk.js') }}"></script>
     </head>
@@ -19,16 +23,7 @@
         <div id="app" class="min-h-screen bg-[#262a35] relative">
             <x-messages.flash-messages />
 
-            {{-- Desktop navigation --}}
-            <div class="hidden lg:block">
-                <x-navigation.navigation-menu />
-            </div>
-
-
-            {{-- Mobile navigation --}}
-            <div class="block lg:hidden">
-                <x-navigation.mobile-navigation-menu />
-            </div>
+            <x-navigation.navigation-menu />
 
             {{-- Sub header --}}
             <div class="sub-header px-5 xl:px-0">
@@ -42,7 +37,7 @@
                         </div>
 
                         <a href="{{ setting('discord_invitation_link') }}" target="_blank" class="transition duration-300 ease-in-out hover:text-gray-300">
-                            Discord
+                            {{ __('Discord') }}
                         </a>
                     </div>
 
@@ -61,12 +56,11 @@
                            </a>
                        @endif
 
-                       @if(hasPermission('view_server_logs'))
-                           <a href="/log-viewer" target="_blank" class="transition duration-300 ease-in-out hover:scale-110">
-                               <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="w-5 h-5">
-                                   <path stroke-linecap="round" stroke-linejoin="round" d="M12 9v3.75m-9.303 3.376c-.866 1.5.217 3.374 1.948 3.374h14.71c1.73 0 2.813-1.874 1.948-3.374L13.949 3.378c-.866-1.5-3.032-1.5-3.898 0L2.697 16.126ZM12 15.75h.007v.008H12v-.008Z" />
+                       @if(hasPermission('manage_website_tickets'))
+                           <a href="{{ route('help-center.ticket.index') }}" aria-label="{{ __('Open tickets') }}" class="transition duration-300 ease-in-out hover:scale-110">
+                               <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="w-5 h-5" aria-hidden="true">
+                                   <path stroke-linecap="round" stroke-linejoin="round" d="M16.5 6v2.25m0 3v2.25m0 3V18M3.75 6h16.5A1.5 1.5 0 0 1 21.75 7.5v2.25a2.25 2.25 0 0 0 0 4.5v2.25A1.5 1.5 0 0 1 20.25 18H3.75a1.5 1.5 0 0 1-1.5-1.5v-2.25a2.25 2.25 0 0 0 0-4.5V7.5A1.5 1.5 0 0 1 3.75 6Z" />
                                </svg>
-
                            </a>
                        @endif
 
@@ -96,8 +90,11 @@
 
         <x-footer />
 
-        <script src="https://cdn.jsdelivr.net/npm/@fancyapps/ui@4.0/dist/fancybox.umd.js"></script>
-        <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@fancyapps/ui/dist/fancybox.css" />
+        <x-fancybox-assets />
+
+        @if (setting('google_recaptcha_enabled'))
+            <script src="https://www.google.com/recaptcha/api.js" async defer></script>
+        @endif
 
         @stack('javascript')
 

@@ -2,43 +2,62 @@
 
 namespace App\Observers;
 
-use App\Models\Game\Player\UserCurrency;
+use App\Actions\Home\CreateDefaultHome;
+use App\Emulator\Contracts\CurrencyRepository;
+use App\Emulator\Contracts\PlayerRepository;
+use App\Emulator\Contracts\PlayerSettingsRepository;
+use App\Enums\CurrencyTypes;
 use App\Models\User;
 
 class UserObserver
 {
+    public function __construct(
+        private readonly CurrencyRepository $currencies,
+        private readonly PlayerRepository $players,
+        private readonly PlayerSettingsRepository $settings,
+        private readonly CreateDefaultHome $defaultHome,
+    ) {}
+
     public function created(User $user): void
     {
-        $user->settings()->create([
-            'last_hc_payday' => (setting('give_hc_on_register') ?: '0') == '1' ? now()->addYears(10)->unix() : 0,
-        ]);
+        $this->players->created($user);
 
-        if ((setting('give_hc_on_register') ?: '0') == '1') {
-            $user->hcSubscription()->insert([
-                'user_id' => $user->id,
-                'subscription_type' => 'HABBO_CLUB',
-                'timestamp_start' => now()->unix(),
-                'duration' => (int) (setting('hc_on_register_duration') ?: 0),
-                'active' => 1,
-            ]);
+        $this->settings->created($user);
+
+        $this->grantStartingBalances($user);
+
+        $this->defaultHome->execute($user);
+    }
+
+    public function updated(User $user): void
+    {
+        $this->players->updated($user);
+    }
+
+    public function deleting(User $user): void
+    {
+        $this->players->deleting($user);
+    }
+
+    /**
+     * Starting balances go through the currency driver, so registration works
+     * on every emulator schema. Credits are a column on users and are set by
+     * the registration action itself.
+     */
+    private function grantStartingBalances(User $user): void
+    {
+        $startingBalances = [
+            [CurrencyTypes::Duckets, 'start_duckets'],
+            [CurrencyTypes::Diamonds, 'start_diamonds'],
+            [CurrencyTypes::Points, 'start_points'],
+        ];
+
+        foreach ($startingBalances as [$currency, $settingKey]) {
+            $amount = $user->username === 'Admin' ? 0 : (int) (setting($settingKey) ?: 0);
+
+            if ($amount > 0) {
+                $this->currencies->give($user, $currency, $amount);
+            }
         }
-
-        UserCurrency::insert([
-            [
-                'user_id' => $user->id,
-                'type' => 0,
-                'amount' => $user->username === 'Admin' ? 0 : (setting('start_duckets') ?: 0),
-            ],
-            [
-                'user_id' => $user->id,
-                'type' => 5,
-                'amount' => $user->username === 'Admin' ? 0 : (setting('start_diamonds') ?: 0),
-            ],
-            [
-                'user_id' => $user->id,
-                'type' => 101,
-                'amount' => $user->username === 'Admin' ? 0 : (setting('start_points') ?: 0),
-            ],
-        ]);
     }
 }

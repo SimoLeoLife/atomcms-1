@@ -2,63 +2,53 @@
 
 namespace App\Services\Community;
 
-use App\Models\Game\Permission;
+use App\Emulator\Contracts\RankRepository;
+use App\Emulator\Models\Rank;
 use App\Models\User;
+use App\Support\CommunityCache;
 use Illuminate\Database\Eloquent\Collection;
-use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\Cache;
 
 class StaffService
 {
-    public function fetchStaffPositions(): Collection
+    public function __construct(private readonly RankRepository $ranks) {}
+
+    /** @return Collection<int, covariant Rank> */
+    public function fetchStaffPositions(User $viewer): Collection
     {
-        $cacheEnabled = setting('enable_caching') === '1';
+        $includeHidden = $viewer->rank >= (int) setting('min_rank_to_see_hidden_staff');
+        $resolve = fn (): Collection => $this->ranks->staffPositions($includeHidden);
 
-        if ($cacheEnabled && Cache::has('staff_positions')) {
-            return Cache::get('staff_positions');
+        if (setting('enable_caching') !== '1') {
+            return $resolve();
         }
 
-        $employees = Permission::query()
-            ->select('id', 'rank_name', 'badge', 'staff_color', 'job_description')
-            ->when(Auth::user()->rank < (int) setting('min_rank_to_see_hidden_staff'), function ($query) {
-                return $query->where('hidden_rank', false);
-            })
-            ->where('id', '>=', setting('min_staff_rank'))
-            ->orderByDesc('id')
-            ->with(['users' => function ($query) {
-                $query->select('id', 'username', 'rank', 'motto', 'look', 'hidden_staff', 'online')
-                    ->when(Auth::user()->rank < (int) setting('min_rank_to_see_hidden_staff'), function ($query) {
-                        return $query->where('hidden_staff', false);
-                    });
-            }])
-            ->get();
-
-        if ($cacheEnabled) {
-            $cacheTimer = (int) setting('cache_timer');
-            Cache::put('staff_positions', $employees, now()->addMinutes($cacheTimer));
-        }
-
-        return $employees;
+        return Cache::remember(
+            CommunityCache::staffPositionsKey($includeHidden),
+            now()->addMinutes((int) setting('cache_timer')),
+            $resolve,
+        );
     }
 
+    /** @return list<int> */
     public function fetchEmployeeIds(): array
     {
         $cacheEnabled = setting('enable_caching') === '1';
 
-        if ($cacheEnabled && Cache::has('staff_ids')) {
-            return Cache::get('staff_ids');
-        }
-
-        $staffIds = User::select('id')
+        $resolve = fn (): array => User::select('id')
             ->where('rank', '>=', setting('min_staff_rank'))
             ->get()
-            ->pluck('id')->toArray();
+            ->pluck('id')
+            ->map(fn (mixed $id): int => (int) $id)
+            ->values()
+            ->all();
 
-        if ($cacheEnabled) {
-            $cacheTimer = (int) setting('cache_timer');
-            Cache::put('staff_ids', $staffIds, now()->addMinutes($cacheTimer));
-        }
+        $ids = $cacheEnabled ? Cache::remember(
+            CommunityCache::STAFF_IDS,
+            now()->addMinutes((int) setting('cache_timer')),
+            $resolve,
+        ) : $resolve();
 
-        return $staffIds;
+        return array_values($ids);
     }
 }

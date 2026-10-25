@@ -3,6 +3,7 @@
 namespace Database\Seeders;
 
 use App\Models\Miscellaneous\WebsitePermission;
+use App\Support\PermissionRanks;
 use Illuminate\Database\Seeder;
 
 class WebsitePermissionSeeder extends Seeder
@@ -16,14 +17,9 @@ class WebsitePermissionSeeder extends Seeder
                 'description' => 'Min rank to bypass vpn blocker check',
             ],
             [
-                'permission' => 'view_server_logs',
-                'min_rank' => '7',
-                'description' => 'Minimum required rank to access the log viewer',
-            ],
-            [
                 'permission' => 'housekeeping_access',
                 'min_rank' => '7',
-                'description' => 'Minimum required rank to access the log viewer',
+                'description' => 'Minimum required rank to access housekeeping',
             ],
             [
                 'permission' => 'delete_article_comments',
@@ -55,7 +51,7 @@ class WebsitePermissionSeeder extends Seeder
         foreach ($permissions as $permission) {
             WebsitePermission::firstOrCreate(['permission' => $permission['permission']], [
                 'permission' => $permission['permission'],
-                'min_rank' => $permission['min_rank'],
+                'min_rank' => PermissionRanks::scale((int) $permission['min_rank']),
                 'description' => $permission['description'],
             ]);
         }

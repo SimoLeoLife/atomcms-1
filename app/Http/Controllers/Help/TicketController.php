@@ -4,117 +4,101 @@ namespace App\Http\Controllers\Help;
 
 use App\Http\Controllers\Controller;
 use App\Http\Requests\WebsiteTicketFormRequest;
-use App\Models\Help\WebsiteHelpCenterCategory;
 use App\Models\Help\WebsiteHelpCenterTicket;
+use App\Services\Help\TicketService;
+use App\Support\AuthenticatedUser;
+use Illuminate\Database\Eloquent\Collection;
+use Illuminate\Http\RedirectResponse;
 use Illuminate\Support\Facades\Auth;
+use Illuminate\View\View;
 
 class TicketController extends Controller
 {
-    public function index()
+    public function index(): View
     {
-        if (! hasPermission('manage_website_tickets')) {
-            return redirect()->back()->with([
-                'message' => __('You cannot access this page'),
-            ]);
-        }
+        $this->authorize('viewAny', WebsiteHelpCenterTicket::class);
 
         return view('help-center.tickets.index', [
-            'tickets' => WebsiteHelpCenterTicket::orderBy('open')->with('user:id,username')->paginate(15),
+            'tickets' => app(TicketService::class)->tickets(AuthenticatedUser::current(), true),
         ]);
     }
 
-    public function create()
+    public function create(): View
     {
         return view('help-center.tickets.create', [
-            'categories' => WebsiteHelpCenterCategory::get(),
-            'openTickets' => WebsiteHelpCenterTicket::where('open', true)->where('user_id', Auth::id())->get(),
+            'categories' => app(TicketService::class)->categories(),
+            'openTickets' => $this->myOpenTickets(),
         ]);
     }
 
-    public function store(WebsiteTicketFormRequest $request)
+    public function store(WebsiteTicketFormRequest $request): RedirectResponse
     {
-        Auth::user()->tickets()->create($request->validated());
+        app(TicketService::class)->store(AuthenticatedUser::from($request), $request->ticketData());
 
         return redirect()->back()->with('success', __('Ticket submitted!'));
     }
 
-    public function edit(WebsiteHelpCenterTicket $ticket)
+    public function edit(WebsiteHelpCenterTicket $ticket): View
     {
-        if (! $ticket->canManageTicket()) {
-            return redirect()->back()->with([
-                'message' => __('You cannot manage others tickets.'),
-            ]);
-        }
+        $this->authorize('update', $ticket);
 
-        $ticket->load([
-            'user:id,username,look',
-            'category',
-            'replies.user:id,username,look',
-        ]);
+        $ticket = app(TicketService::class)->show(AuthenticatedUser::current(), $ticket);
 
         return view('help-center.tickets.edit', [
             'ticket' => $ticket,
-            'categories' => WebsiteHelpCenterCategory::get(),
-            'openTickets' => WebsiteHelpCenterTicket::where('open', true)->where('id', '!=', $ticket->id)->where('user_id', Auth::id())->get(),
+            'categories' => app(TicketService::class)->categories(),
+            'openTickets' => $this->myOpenTickets($ticket),
         ]);
     }
 
-    public function update(WebsiteHelpCenterTicket $ticket, WebsiteTicketFormRequest $request)
+    public function update(WebsiteHelpCenterTicket $ticket, WebsiteTicketFormRequest $request): RedirectResponse
     {
-        if (! $ticket->canManageTicket()) {
-            return redirect()->back()->with([
-                'message' => __('You cannot manage others tickets.'),
-            ]);
-        }
-
-        $ticket->update($request->validated());
+        app(TicketService::class)->update(AuthenticatedUser::from($request), $ticket, $request->ticketData());
 
         return to_route('help-center.ticket.show', $ticket)->with('success', __('Ticket updated!'));
     }
 
-    public function show(WebsiteHelpCenterTicket $ticket)
+    public function show(WebsiteHelpCenterTicket $ticket): View
     {
-        if (! $ticket->canManageTicket()) {
-            return redirect()->back()->with([
-                'message' => __('You cannot view others tickets.'),
-            ]);
-        }
+        $this->authorize('view', $ticket);
 
-        $ticket->load([
-            'user:id,username,look',
-            'category',
-            'replies.user:id,username,look',
-        ]);
+        $ticket = app(TicketService::class)->show(AuthenticatedUser::current(), $ticket);
 
         return view('help-center.tickets.show', [
             'ticket' => $ticket,
-            'openTickets' => WebsiteHelpCenterTicket::where('open', true)->where('id', '!=', $ticket->id)->where('user_id', Auth::id())->get(),
+            'openTickets' => $this->myOpenTickets($ticket),
         ]);
     }
 
-    public function destroy(WebsiteHelpCenterTicket $ticket)
+    public function destroy(WebsiteHelpCenterTicket $ticket): RedirectResponse
     {
-        if (! $ticket->canDeleteTicket()) {
-            return redirect()->back()->with([
-                'message' => __('You cannot delete others tickets.'),
-            ]);
-        }
-
-        $ticket->delete();
+        app(TicketService::class)->destroy(AuthenticatedUser::current(), $ticket);
 
         return to_route('me.show')->with('success', __('The ticket has been deleted!'));
     }
 
-    public function toggleTicketStatus(WebsiteHelpCenterTicket $ticket)
+    public function toggleTicketStatus(WebsiteHelpCenterTicket $ticket): RedirectResponse
     {
-        if (! $ticket->canManageTicket()) {
-            return redirect()->back()->with([
-                'message' => __('You manage others tickets.'),
-            ]);
-        }
-
-        $ticket->open ? $ticket->update(['open' => false]) : $ticket->update(['open' => true]);
+        app(TicketService::class)->toggle(AuthenticatedUser::current(), $ticket);
 
         return redirect()->back()->with('success', __('The ticket status has been changed!'));
+    }
+
+    /**
+     * The current user's open tickets, optionally excluding the one being
+     * viewed or edited.
+     *
+     * @return Collection<int, WebsiteHelpCenterTicket>
+     */
+    private function myOpenTickets(?WebsiteHelpCenterTicket $except = null): Collection
+    {
+        $query = WebsiteHelpCenterTicket::where('open', true)
+            ->where('user_id', Auth::id());
+
+        if ($except !== null) {
+            $query->whereKeyNot($except->getKey());
+        }
+
+        return $query->get();
     }
 }

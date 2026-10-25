@@ -136,6 +136,11 @@ class WebsiteSettingsSeeder extends Seeder
                 'comment' => 'The path for loading ExternalTexts',
             ],
             [
+                'key' => 'flash_external_texts_file',
+                'value' => '',
+                'comment' => 'The path to the flash client external_flash_texts file, used by the badge page (leave empty when not serving the flash client)',
+            ],
+            [
                 'key' => 'maintenance_enabled',
                 'value' => '0',
                 'comment' => 'Determines whether maintenance is enabled or not',
@@ -177,7 +182,7 @@ class WebsiteSettingsSeeder extends Seeder
             ],
             [
                 'key' => 'cloudflare_turnstile_enabled',
-                'value' => '1',
+                'value' => '0',
                 'comment' => 'Determines whether cloudflare turnstile is enabled or not - Do not enable if google recaptche is enabled',
             ],
             [

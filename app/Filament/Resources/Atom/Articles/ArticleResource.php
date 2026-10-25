@@ -2,14 +2,13 @@
 
 namespace App\Filament\Resources\Atom\Articles;
 
+use App\Filament\Concerns\TranslatableResource;
 use App\Filament\Resources\Atom\Articles\Pages\CreateArticle;
 use App\Filament\Resources\Atom\Articles\Pages\EditArticle;
 use App\Filament\Resources\Atom\Articles\Pages\ListArticles;
 use App\Filament\Resources\Atom\Articles\Pages\ViewArticle;
 use App\Filament\Resources\Atom\Articles\RelationManagers\TagsRelationManager;
-use App\Filament\Traits\TranslatableResource;
 use App\Models\Articles\WebsiteArticle;
-use Exception;
 use Filament\Actions\DeleteAction;
 use Filament\Actions\DeleteBulkAction;
 use Filament\Actions\EditAction;
@@ -19,14 +18,15 @@ use Filament\Actions\RestoreAction;
 use Filament\Actions\RestoreBulkAction;
 use Filament\Actions\ViewAction;
 use Filament\Forms\Components\FileUpload;
-use Filament\Forms\Components\Hidden;
 use Filament\Forms\Components\RichEditor;
 use Filament\Forms\Components\TextInput;
 use Filament\Forms\Components\Toggle;
 use Filament\Resources\Resource;
+use Filament\Schemas\Components\Component;
 use Filament\Schemas\Components\Tabs;
 use Filament\Schemas\Components\Tabs\Tab;
 use Filament\Schemas\Schema;
+use Filament\Tables\Columns\Column;
 use Filament\Tables\Columns\ImageColumn;
 use Filament\Tables\Columns\TextColumn;
 use Filament\Tables\Columns\ToggleColumn;
@@ -55,6 +55,7 @@ class ArticleResource extends Resource
             ->components(static::getForm());
     }
 
+    /** @return array<int, Component> */
     public static function getForm(): array
     {
         return [
@@ -80,15 +81,15 @@ class ArticleResource extends Resource
                             FileUpload::make('image')
                                 ->label(__('filament::resources.inputs.image'))
                                 ->directory('website_news_images')
+                                ->image()
+                                ->acceptedFileTypes(['image/jpeg', 'image/png', 'image/gif', 'image/webp'])
+                                ->maxSize(2048)
                                 ->visibility('public'),
 
                             RichEditor::make('full_story')
                                 ->label(__('filament::resources.inputs.content'))
                                 ->required()
                                 ->columnSpan('full'),
-
-                            Hidden::make('user_id')
-                                ->default(fn () => auth()->check() ? auth()->user()->id : null),
                         ]),
 
                     Tab::make(__('filament::resources.tabs.Configurations'))
@@ -99,22 +100,6 @@ class ArticleResource extends Resource
                                 ->onIcon('heroicon-s-check')
                                 ->offIcon('heroicon-s-x-mark')
                                 ->default(true)
-                                ->live()
-                                ->afterStateUpdated(function (string $operation, $state, $record) {
-                                    if ($operation !== 'edit' || is_null($record)) {
-                                        return;
-                                    }
-
-                                    try {
-                                        if ($state) {
-                                            $record->restore();
-                                        } else {
-                                            $record->delete();
-                                        }
-                                    } catch (Exception $e) {
-                                        report($e);
-                                    }
-                                })
                                 ->formatStateUsing(function ($record) {
                                     if (is_null($record)) {
                                         return true;
@@ -137,7 +122,6 @@ class ArticleResource extends Resource
     {
         return $table
             ->defaultSort('id', 'desc')
-            ->poll('60s')
             ->columns(static::getTable())
             ->filters([
                 TrashedFilter::make(),
@@ -156,6 +140,7 @@ class ArticleResource extends Resource
             ]);
     }
 
+    /** @return array<int, Column> */
     public static function getTable(): array
     {
         return [
@@ -184,7 +169,7 @@ class ArticleResource extends Resource
                 ->state(fn ($record) => is_null($record->deleted_at))
                 ->disabled(),
 
-            ToggleColumn::make('allow_comments')
+            ToggleColumn::make('can_comment')
                 ->label(__('filament::resources.columns.allow_comments'))
                 ->onIcon('heroicon-s-check')
                 ->toggleable()
@@ -194,9 +179,11 @@ class ArticleResource extends Resource
 
     public static function getEloquentQuery(): Builder
     {
-        return parent::getEloquentQuery()->withoutGlobalScopes([
-            SoftDeletingScope::class,
-        ]);
+        return parent::getEloquentQuery()
+            ->with('user')
+            ->withoutGlobalScopes([
+                SoftDeletingScope::class,
+            ]);
     }
 
     public static function getRelations(): array
@@ -218,6 +205,7 @@ class ArticleResource extends Resource
 
     public static function getGlobalSearchEloquentQuery(): Builder
     {
-        return parent::getGlobalSearchEloquentQuery()->withTrashed();
+        return parent::getGlobalSearchEloquentQuery()
+            ->withoutGlobalScope(SoftDeletingScope::class);
     }
 }
